@@ -1,0 +1,77 @@
+# Testing
+
+```sh
+go test ./...              # everything
+go test ./... -race        # with the race detector
+go test ./internal/mmr -v  # the package most worth reading
+go test ./... -bench=. -run='^$'
+```
+
+Green means every test passes and `go vet ./...` is clean. There is no coverage threshold; coverage
+percentage is a poor proxy for whether the properties that matter are pinned down.
+
+Current state: 47 tests, 52 including subtests, across 6 packages.
+
+## What is tested at which level
+
+**`internal/hashchain` — property tests over the constructions.**
+The tests that matter assert *separation* rather than values: a leaf over two concatenated hashes
+must not collide with an interior node, node and chain constructions must not collide, `Node` must
+be order-sensitive, and a leaf must bind its sequence number and kind rather than only its bytes.
+These are the second-preimage and reordering defences, so they are tested directly rather than
+implied.
+
+**`internal/mmr` — exhaustive, not sampled.**
+`TestProofRoundTrip` builds every range from 1 to 130 leaves and proves every leaf in each. Ranges
+that are not powers of two are where the peak arithmetic actually gets exercised, so sampling would
+miss the interesting cases. Alongside it: proofs must be rejected for the wrong leaf, a tampered
+sibling, an unrelated root, and an altered leaf count. `TestKnownLayout` checks the seven-node
+four-leaf layout against hand-computed hashes, which is the test that would catch a change in the
+bagging direction.
+
+**`internal/logfmt` — round trips and detection.**
+Frame encode/decode, empty payloads, oversized-length refusal. Then the three outcomes a reader must
+distinguish: an edited payload, a spliced chain, and a truncated final frame. Canonical encoding is
+tested by marshalling a five-key map 200 times and requiring byte-identical output, since Go
+randomises map iteration and that is exactly the failure this encoder exists to prevent.
+
+**`internal/signer` — every field of the signing input.**
+A subtest per field asserts that changing it breaks the signature. Plus: a signature must not verify
+under a substituted public key, and length prefixing must make `("ab", 1)` and `("a", 1)`
+distinguishable. That last one is the classic concatenation ambiguity.
+
+**`internal/bundle` — integration, through real files on disk.**
+Sealed, signed, and unsealed bundles; payload tampering located by content and expected to be
+reported with the faulting sequence number; mid-frame truncation reported as truncation rather than
+corruption; a non-bundle file rejected. `TestInclusionProofAgainstSealedRoot` proves every event of a
+bundle against the root that `Verify` independently recomputed, which ties the MMR and the bundle
+layers together.
+
+**`internal/runid`** — length and alphabet, lexicographic order following creation time (the reason
+ULID was chosen over UUIDv4), uniqueness within a single millisecond across 5,000 draws, and the
+absence of `I`, `L`, `O`, `U`.
+
+## Benchmarks
+
+`BenchmarkAdd` and `BenchmarkProve` exist in `internal/mmr`, the latter over a 100,000-leaf range.
+They are not performance claims yet — [benchmarking.md](benchmarking.md) states the methodology that
+has to come before any number is published.
+
+## Deliberately not tested
+
+- **Kernel enforcement**, because it does not exist yet. When it lands in W2 it needs integration
+  tests on a real Linux kernel in CI, not unit tests with mocked syscalls — a mocked Landlock test
+  asserts nothing about whether Landlock was actually applied.
+- **Replay fidelity**, until there is a replayer. The W6 suite is the real test of the project's
+  central claim, and it publishes its failures rather than a pass/fail.
+- **Concurrent in-process races inside the agent.** Out of scope by design; the replayer detects
+  divergence rather than preventing it.
+- **The CLI's output formatting.** Asserting on printed strings would lock down wording that should
+  stay free to improve. The exit codes are the contract, and those are exercised by hand in the
+  quickstart until W2 adds a shell-level harness.
+
+## Fixtures
+
+`hark synth` writes a bundle describing the prompt-injection incident without needing the recorder.
+`-corrupt N` flips a byte in one event's payload; `-truncate N` stops early, leaving the bundle
+unsealed. Both exist so the verifier can be shown catching things rather than asserted to.
