@@ -3,7 +3,13 @@
 Eight weeks, with v0.1 standing alone as a complete artifact at week 4. Weeks 5–8 overlap with
 placement interviews and are treated as upside, not as part of the commitment.
 
+This file is the state of the work. The implementation specs in [build/](build/) are how each phase
+gets executed — file paths, interfaces, acceptance commands and traps. Open the spec for the current
+phase before writing code.
+
 ## W0 — groundwork · not started
+
+Spec: [build/w0-groundwork.md](build/w0-groundwork.md)
 
 - [ ] Provision the Linux box. Oracle Cloud Ampere free tier, Mumbai region, Ubuntu 24.04. Fallback
       is a Hetzner CX22 at roughly ₹400/month.
@@ -27,6 +33,8 @@ placement interviews and are treated as upside, not as part of the commitment.
 
 ## W2 — launcher, mediator, broker · not started
 
+Spec: [build/w2-launcher.md](build/w2-launcher.md)
+
 The highest-variance week. Deliverable: a curl-based fake agent produces a real event log containing
 a real denial.
 
@@ -40,6 +48,8 @@ a real denial.
 - [ ] `hark run`.
 
 ## W3 — replay · not started
+
+Spec: [build/w3-replay.md](build/w3-replay.md)
 
 Second-highest variance. Deliverable: `hark run` then `hark replay` reports REPLAY-EQUAL on an agent
 that genuinely calls a model.
@@ -55,6 +65,8 @@ that genuinely calls a model.
 
 ## W4 — the incident, and v0.1 · not started
 
+Spec: [build/w4-v0.1.md](build/w4-v0.1.md)
+
 **v0.1 ships here and must be independently interview-ready.**
 
 - [ ] The prompt-injection demo end to end.
@@ -65,6 +77,8 @@ that genuinely calls a model.
 - [ ] README with the demo GIF.
 
 ## W5 — a real workload · not started
+
+Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
 
 - [ ] Record UrbanHeat's LangGraph agents with **zero code changes** — `HTTPS_PROXY`, the CA, and
       `PYTHONPATH`. Its retry-on-429 path exercises "same logical call, multiple HTTP requests", and

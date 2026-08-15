@@ -120,9 +120,23 @@ internal/bundle/     .hark reader, writer, verifier
 internal/runid/      ULID run identifiers
 ```
 
-Design documents: [architecture](docs/architecture.md) · [wire protocol](docs/protocol.md) ·
-[threat model](docs/security.md) · [testing](docs/testing.md) · [roadmap](docs/roadmap.md) ·
-[decisions](docs/decisions/)
+## Documentation
+
+|   |   |
+| --- | --- |
+| [docs/architecture.md](docs/architecture.md) | Trust zones, packages, recording flow, concurrency model |
+| [docs/protocol.md](docs/protocol.md) | Wire format. The authority — code follows this |
+| [docs/security.md](docs/security.md) | Threat model, controls, and the known limitations |
+| [docs/decisions/](docs/decisions/) | ADRs. Read before proposing a change one of them settled |
+| [docs/build/](docs/build/) | **Implementation specs, one per phase — the working documents** |
+| [docs/roadmap.md](docs/roadmap.md) | What ships when, and what is deliberately out of scope |
+| [docs/testing.md](docs/testing.md) | Strategy, and what is deliberately not tested |
+| [docs/benchmarking.md](docs/benchmarking.md) | Methodology, written before any number is published |
+| [docs/build-log.md](docs/build-log.md) | Session-by-session narrative of what was built and why |
+| [docs/glossary.md](docs/glossary.md) | Terms that mean one specific thing here |
+
+Also: [api](docs/api.md) · [data model](docs/data-model.md) · [runbook](docs/runbook.md) ·
+[observability](docs/observability.md) · [troubleshooting](docs/troubleshooting.md)
 
 ## Related work
 
@@ -130,7 +144,7 @@ Containment and audit logging for agents are both actively worked on; the combin
 bit-comparable replay under one mediator is where `hark` differs.
 
 | Category | Examples | Difference |
-|---|---|---|
+| --- | --- | --- |
 | Agent sandboxes | Pipelock, Clawker, Nono | Contain the agent; do not produce a replayable artifact |
 | System observability | AgentSight | Observes syscalls and TLS; does not enforce or replay |
 | MCP recorders | Agent VCR, mcpsnoop | Record and replay tool calls; no containment, no proofs |
@@ -141,6 +155,10 @@ bit-comparable replay under one mediator is where `hark` differs.
 > the actual project before this repo is made public — see the W0 item in
 > [docs/roadmap.md](docs/roadmap.md). Misstating a peer project's capabilities would be a worse
 > outcome than omitting the table.
+
+## Maintainer
+
+**DevGurav** — [github.com/DevGurav](https://github.com/DevGurav)
 
 ## Licence
 

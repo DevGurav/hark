@@ -2,9 +2,13 @@
 
 ## Orientation
 
-Read in this order: [docs/roadmap.md](docs/roadmap.md) for where the work is,
-[docs/architecture.md](docs/architecture.md) for how it fits together,
-[docs/decisions/](docs/decisions/) before proposing anything that a numbered ADR already settled.
+**Start at [docs/build/](docs/build/).** It holds one implementation spec per phase — deliverables,
+interfaces, ordered tasks, acceptance commands, and the traps that would otherwise cost a day. Open
+the spec for the current phase and work its tasks in order.
+
+Supporting reads: [docs/roadmap.md](docs/roadmap.md) for where the work sits,
+[docs/architecture.md](docs/architecture.md) for how the pieces fit,
+[docs/decisions/](docs/decisions/) before proposing anything a numbered ADR already settled.
 
 [docs/protocol.md](docs/protocol.md) is the authority on the wire format. Code follows it, not the
 other way round.
@@ -53,9 +57,8 @@ Per `Repos/ENGINEERING_PLAYBOOK.md`:
 - [ ] Committed atomically, with messages that read as an engineer's
 - [ ] Pushed
 
-## Attribution
+## Authorship
 
-This is a solo-authored project. No AI assistance is referenced anywhere in the repository — not in
-commits, code comments, docs, or issue text. No `Co-Authored-By` trailers, no "generated with" lines.
+Owner and sole author: **DevGurav**.
 
-Commits are authored as `DevGurav <dev.gurav011@gmail.com>`.
+Commits are authored as `DevGurav <dev.gurav011@gmail.com>`. No co-author trailers.
