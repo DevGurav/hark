@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Pinned rather than ubuntu-latest: from W2 this job needs a kernel with
+    # Landlock in its active LSM list and the ability to create network
+    # namespaces, so the runner image is part of the test environment and
+    # should not move underneath us without a deliberate change.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+      - name: Test with race detector
+        run: go test ./... -race -count=1
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # The verifier is the only component that will ever be asked to say "no".
+      # Exercising the negative paths in CI keeps them honest: it would be easy
+      # to break tamper detection and still have every unit test pass.
+      - name: Verifier acceptance
+        run: |
+          set -eux
+          go build -o hark ./cmd/hark
+          ./hark keygen -out ci.key
+          ./hark synth -key ci.key good.hark
+          ./hark verify good.hark
+          ./hark prove -seq 14 -out proof.json good.hark
+          ./hark prove -check proof.json
+
+          ./hark synth -corrupt 9 bad.hark
+          if ./hark verify -quiet bad.hark; then
+            echo "verifier accepted a tampered bundle"; exit 1
+          fi
+
+          ./hark synth -truncate 14 partial.hark
+          ./hark verify -quiet partial.hark && rc=0 || rc=$?
+          if [ "$rc" -ne 3 ]; then
+            echo "expected exit 3 for a truncated bundle, got $rc"; exit 1
+          fi
