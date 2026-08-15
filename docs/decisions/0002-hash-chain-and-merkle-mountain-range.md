@@ -20,7 +20,7 @@ A single structure serves one of these well and the other badly.
 
 Maintain both, over the same leaves.
 
-```
+```text
 leaf_n  = BLAKE3(0x00 || seq || kind || canonical_cbor(payload))
 chain_n = BLAKE3(0x02 || chain_{n-1} || leaf_n)     stored in every frame
 node    = BLAKE3(0x01 || left || right)             MMR interior nodes

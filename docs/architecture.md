@@ -2,7 +2,7 @@
 
 ## Trust zones
 
-```
+```text
 ┌─ Zone 0: hark supervisor (trusted) ─────────────────────────┐
 │  policy loader · secrets vault · log writer · Ed25519 key   │
 │  MMR builder · Rekor client                                 │
@@ -35,7 +35,7 @@ Three invariants fall out of this layout, and they are the ones to preserve when
 ## Package structure
 
 | Package | Responsibility |
-|---|---|
+| --- | --- |
 | `internal/hashchain` | Domain-separated BLAKE3: leaf, node, chain. Everything else builds on these three functions. |
 | `internal/logfmt` | Event kinds, payload structs, canonical CBOR encoding, frame codec. |
 | `internal/mmr` | Merkle Mountain Range, inclusion proof generation and verification. |
@@ -55,7 +55,7 @@ Python `sitecustomize` shim. See [roadmap.md](roadmap.md).
 
 ## Recording flow
 
-```
+```text
 agent process                mediator                    supervisor
      │                          │                             │
      ├── connect ──────────────►│                             │
@@ -91,7 +91,7 @@ here is where it diverged" is more trustworthy than one that always says OK.
 
 ## Fork semantics
 
-```
+```text
 hark fork run-01J8X.hark --at 47 --patch strip-injection.json
   1. replay events [0..47) bit-exactly     ← provably identical prefix
   2. apply the patch to event 47's payload

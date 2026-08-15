@@ -17,7 +17,7 @@ Signed tree heads are necessary but are explicitly not the security claim. `hark
 in a public transparency log (Sigstore Rekor) and reports the anchor as a separate, visible line in
 `hark verify`. An unanchored bundle says so:
 
-```
+```text
 transparency  not anchored -- integrity only, no non-equivocation
 ```
 

@@ -25,7 +25,7 @@ the sender.
 ## Controls
 
 | Threat | Control | Status |
-|---|---|---|
+| --- | --- | --- |
 | A1 exfiltrates a credential | Broker: the agent's environment holds `hark-placeholder-<runid>`; real values are injected at the boundary, after Zone 2 | W2 |
 | A1 reaches a disallowed host | Network namespace with no route except the veth; allowlist evaluated in the mediator | W2 |
 | A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code | W2 |

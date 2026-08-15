@@ -7,7 +7,7 @@ All integers are big-endian.
 
 ## File layout
 
-```
+```text
 "HARK" 0x01              5 bytes: magic and format version
 u32 + CBOR               header
 frames...                zero or more, see below
@@ -20,7 +20,7 @@ intact frame verifies against the hash chain. `hark verify` reports this as `TRU
 
 ## Frame
 
-```
+```text
 offset  size  field
      0     4  payload length, n
      4     1  kind
@@ -40,7 +40,7 @@ unbounded allocation from a hostile file.
 
 ## Hashing
 
-```
+```text
 leaf_n  = BLAKE3(0x00 || seq_be64 || kind_u8 || payload)
 node    = BLAKE3(0x01 || left || right)
 chain_n = BLAKE3(0x02 || chain_{n-1} || leaf_n)      chain_0 predecessor is 32 zero bytes
@@ -54,7 +54,7 @@ See [ADR-0002](decisions/0002-hash-chain-and-merkle-mountain-range.md).
 Nodes are conceptually stored in post-order: both children before their parent. Appending leaf
 number n (1-based) triggers exactly `TrailingZeros(n)` merges.
 
-```
+```text
 leaves  nodes
 1       L0
 2       L0 L1 P01
@@ -94,7 +94,7 @@ Verification:
 ## Header
 
 | Key | Field | Notes |
-|---|---|---|
+| --- | --- | --- |
 | 1 | RunID | ULID, 26 characters |
 | 2 | CreatedAt | Unix nanoseconds |
 | 3 | Recorder | version string of the writer |
@@ -108,7 +108,7 @@ Verification:
 ## Footer
 
 | Key | Field | Notes |
-|---|---|---|
+| --- | --- | --- |
 | 1 | LeafCount | must equal the number of frames |
 | 2 | Root | MMR root |
 | 3 | FinalChain | last chain value |
@@ -120,7 +120,7 @@ Verification:
 
 Signed bytes, with lengths prefixed so no two distinct heads can produce the same input:
 
-```
+```text
 "hark/sth/v1" || len(runID)_be64 || runID || leafCount_be64 || root || signedAt_be64
 ```
 
@@ -131,7 +131,7 @@ not pass.
 ## Event kinds
 
 | # | Kind | # | Kind |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | RunStart | 9 | ToolCallResult |
 | 2 | PolicyLoaded | 10 | EgressAttempt |
 | 3 | EnvSnapshot | 11 | EgressDecision |
