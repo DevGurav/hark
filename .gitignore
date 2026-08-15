@@ -1,0 +1,33 @@
+# Build output
+/hark
+/hark.exe
+/dist/
+
+# Signing keys. Never commit one, not even a throwaway -- a key in git history
+# is a key that has to be treated as compromised forever.
+*.key
+*.pem
+
+# Recorded runs. Bundles can contain the full text of model traffic and tool
+# output; they are artifacts, not source.
+*.hark
+/runs/
+
+# Generated proofs and reports
+proof*.json
+/trace-report/
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Local working notes, not part of the repository
+/.scratch/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
