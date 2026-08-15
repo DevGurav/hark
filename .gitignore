@@ -24,6 +24,7 @@ proof*.json
 
 # Local working notes, not part of the repository
 /.scratch/
+*.local.md
 
 # Editors and OS
 .vscode/
