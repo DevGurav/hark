@@ -33,7 +33,7 @@ non-representative. Use a real Linux box.
 
 Conventional-Commits subject, then a body that explains the reasoning rather than the diff.
 
-```
+```text
 type(scope): imperative, lowercase summary, no trailing period
 
 Why this change exists and what it trades off. Wrap near 72 columns.
@@ -46,7 +46,7 @@ One commit is one logical change, and each one should build and pass its tests o
 should track substance — a typo fix gets one line, a change to a hashing invariant gets a paragraph
 about what it preserves.
 
-No emoji. No AI or tool attribution of any kind.
+No emoji, and no co-author trailers.
 
 ## Docs are part of the change
 
