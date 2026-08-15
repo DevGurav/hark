@@ -1,0 +1,7 @@
+# Development happens on Windows, CI runs on Linux. Normalise to LF in the
+# repository so gofmt checks and shell scripts behave identically in both places.
+* text=auto eol=lf
+
+# Bundles are a binary format. Never let a checkout rewrite bytes inside one --
+# the hashes would stop matching and the file would fail its own verifier.
+*.hark binary
