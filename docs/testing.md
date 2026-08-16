@@ -79,6 +79,18 @@ first. It checks the environment, the caller's headers and body after `Inject` r
 field of the resulting `Injection` record. Alongside it: no substitution for a denied host,
 overlapping secret values substituted longest-first, and placeholders scoped per run and per secret.
 
+**`internal/mediator` DNS — checked against a real client.**
+`TestAgainstGoResolver` points Go's own `net.Resolver` at the message layer over a loopback UDP
+socket, so real queries are parsed and real responses are consumed by a real implementation. That
+also exercises the AAAA fallback for free: the resolver asks for AAAA, gets NOERROR with no answers,
+retries with A, and reaches the mediator — which is the behaviour NXDOMAIN would have broken.
+
+The abuse cases matter as much. `TestCompressionPointerLoopIsBounded` builds a name pointing at
+itself and fails the test if parsing does not terminate, since hanging here would stall the run the
+supervisor is recording. Oversized labels and names, multi-question messages, responses masquerading
+as queries, and names carrying control bytes are all rejected. `FuzzParseQuery` has run ~1.6M
+executions clean, and asserts that anything which parses is also safe to answer.
+
 **`internal/launcher` — Linux only, and enforcement rather than return codes.**
 Landlock cannot be tested in-process: `restrict_self` is irreversible for the calling thread, so the
 first test would restrict the test binary and every later test would run inside that domain. The

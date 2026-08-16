@@ -262,8 +262,11 @@ Per [ADR-0006](../decisions/0006-mediated-dns-and-sni-host-identification.md). T
 non-cooperating agent's attempts recordable instead of silently dropped.
 
 - [ ] Write `/etc/netns/<ns>/resolv.conf` pointing at the mediator; clean it up on exit.
-- [ ] UDP resolver on the mediator address, port 53. Answer A queries with the mediator's own
-      address. Answer other qtypes with NOERROR and no answers so clients fall back to A.
+- [x] DNS message layer — `internal/mediator/dnsmsg.go`. Query parsing with bounded compression-
+      pointer following, A responses pointing at the mediator, and NOERROR-with-no-answers for
+      everything else so clients fall back to A. Names are lower-cased at parse time and validated
+      before they can reach policy or the log.
+- [ ] Bind it: UDP listener on the mediator address, port 53. *(needs the VM)*
 - [ ] Record `DnsQuery` and `DnsDecision` (next free event kind numbers — never renumber existing
       ones; update `docs/protocol.md` in the same commit).
 - [x] Parse SNI from the ClientHello on the 443 listener to recover the intended host —
