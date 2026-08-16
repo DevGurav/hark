@@ -229,10 +229,13 @@ because the namespace and not the environment is the control.
 
 ### 3. CA and TLS termination
 
-- [ ] Generate a fresh CA per run. Never persist it, never reuse one across runs.
+- [x] Generate a fresh CA per run. Never persist it, never reuse one across runs —
+      `internal/mediator/ca.go`. ECDSA P-256, 24h validity, path length constrained to zero, the
+      private key has no accessor.
+- [x] Sign leaf certificates on demand from the SNI, cached per host. A literal-IP dial lands in the
+      IP SAN rather than the DNS SAN, or verification fails.
 - [ ] Write the CA into the agent's trust store inside the namespace, and set `SSL_CERT_FILE`,
-      `REQUESTS_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`.
-- [ ] Sign leaf certificates on demand from the SNI.
+      `REQUESTS_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. *(needs the launcher)*
 
 **Acceptance.** `curl https://example.com` inside the namespace succeeds and the mediator sees
 plaintext.
@@ -269,13 +272,22 @@ attempt/decision pair with the denial.
 
 ### 5. Secrets broker
 
-- [ ] Populate the agent's environment with `hark-placeholder-<runid>` per configured secret.
-- [ ] On egress to an allowlisted host, substitute the real value in headers and body.
-- [ ] Record `SecretInjected` by reference: logical name, placeholder, host, and optionally a hash of
-      the real value. **Never the value.**
+- [x] Populate the agent's environment with `hark-placeholder-<runid>-<logical>` per configured
+      secret — `internal/broker`. The logical name is part of the token because two secrets sharing a
+      placeholder could not be told apart at substitution time.
+- [x] On egress to an allowlisted host, substitute the real value in headers and body. Inputs are
+      never mutated: `Inject` works on copies and returns them, so the caller records the originals
+      (holding placeholders) and sends the copies. Structural, rather than a rule to remember.
+- [x] Refuse to substitute for a host the policy denies — a second check behind the mediator's, so a
+      regression in the first one still cannot put a credential on the wire.
+- [x] `ContainsSecret` for the recorder to assert against anything about to be written.
+- [ ] Record `SecretInjected` by reference: logical name, placeholder, host, and a hash of the real
+      value. **Never the value.** *(needs the mediator wiring; `Injection` already carries exactly
+      these fields and nothing else)*
 
 **Acceptance.** A test asserts the real secret appears nowhere in the bundle bytes. Write this test
-first — it is the one whose failure would be worst.
+first — it is the one whose failure would be worst. **Done** —
+`TestRealSecretNeverLeavesTheBoundary`.
 
 ### 6. `hark run`
 
