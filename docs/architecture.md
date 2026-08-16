@@ -48,11 +48,28 @@ Three invariants fall out of this layout, and they are the ones to preserve when
 Dependencies run strictly downward: `bundle` → `{logfmt, mmr, signer}` → `hashchain`. No cycles, and
 `hashchain` imports nothing from the project.
 
+| `internal/policy` | The run allowlist. Exact matches only. |
+| `internal/launcher` | Namespace, veth, Landlock, seccomp, capability drop, and the re-executed init child that applies them. |
+| `internal/broker` | Placeholder credentials, substituted at the boundary. |
+
+### How the agent is started
+
+The supervisor re-executes its own binary with a sentinel argument. That child locks an OS thread,
+applies every restriction on it, and calls `execve` on the same thread — because Landlock and seccomp
+restrict the *calling thread*, not the process, and Go moves goroutines between threads freely. It
+blocks on a pipe until the parent has built the namespace, so the agent cannot run before the
+boundary around it exists. See
+[ADR-0007](decisions/0007-re-executing-init-child.md).
+
+Capabilities are dropped first, then Landlock, then seccomp. Neither of the last two needs privilege,
+and dropping first is both the safer default and a hard requirement — the capability drop reads
+`/proc`, which Landlock would otherwise have already closed off.
+
 ### Not yet built
 
-`internal/launcher` (netns, Landlock, seccomp), `internal/mediator` (DNS, TLS termination, SNI,
-recording, egress policy), `internal/broker` (secrets), `internal/replay` (playback and request
-keying), and the Python `sitecustomize` shim. See [roadmap.md](roadmap.md).
+`internal/mediator` still needs its listeners (DNS socket, TLS termination, egress recording);
+`internal/replay` (playback and request keying) and the Python `sitecustomize` shim are W3. See
+[roadmap.md](roadmap.md).
 
 ## How the agent's destination is learned
 

@@ -27,15 +27,15 @@ the sender.
 | Threat | Control | Status |
 | --- | --- | --- |
 | A1 exfiltrates a credential | Broker: the agent's environment holds `hark-placeholder-<runid>`; real values are injected at the boundary, after Zone 2 | W2 |
-| A1 reaches a disallowed host | Network namespace with no route except the veth; allowlist evaluated in the mediator | W2 |
+| A1 reaches a disallowed host | Network namespace whose only route is the veth to the mediator, plus `FORWARD` DROP rules so the host cannot route onward | namespace done; allowlist evaluation pending |
 | A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code. The intended host is recovered from the TLS SNI, so the attempt is recorded rather than silently dropped | W2 |
 | A1 exfiltrates over DNS | The mediator is the namespace's only resolver; every lookup is a recorded, policy-checked event and every A answer points back at the mediator | W2 |
 | A1 dials a literal IP to skip DNS | Still has nowhere to route except the mediator; recorded as an attempt with an empty host rather than allowed by default | W2 |
-| A1 reads files outside its workspace | Landlock filesystem scoping | mechanism done and tested against the kernel; launcher wiring pending |
-| A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | mechanism done and tested against the kernel; launcher wiring pending |
-| A1 reconfigures the namespace holding it | The supervisor's `CAP_NET_ADMIN` is dropped before exec, and `unshare`/`setns` are denied by seccomp | mechanism done and tested |
-| A1 reads another process's memory | seccomp denies `ptrace` and `process_vm_readv`/`writev`, which need no capability between processes of the same user | mechanism done and tested |
-| A1 edits or deletes its own audit log | The log lives in Zone 0; no Landlock rule grants a path to it | W2 |
+| A1 reads files outside its workspace | Landlock filesystem scoping | done, enforced end to end |
+| A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | done, enforced end to end |
+| A1 reconfigures the namespace holding it | The supervisor's `CAP_NET_ADMIN` is dropped before exec, and `unshare`/`setns` are denied by seccomp | done, enforced end to end |
+| A1 reads another process's memory | seccomp denies `ptrace` and `process_vm_readv`/`writev`, which need no capability between processes of the same user | done, enforced end to end |
+| A1 edits or deletes its own audit log | The log lives in Zone 0; no Landlock rule grants a path to it | done, enforced end to end |
 | A1 hides an attempt by crashing afterwards | `EgressAttempt` is written before the decision, and the writer fsyncs after a denial | done (writer) |
 | A2 or A3 edits a bundle | Per-frame leaf hashes and a hash chain; the verifier names the faulting event and distinguishes an edit from a splice | done |
 | A2 substitutes a whole bundle | Ed25519 signed tree head, with `hark verify -key` for pinning | done |
@@ -46,6 +46,14 @@ the sender.
 
 Stated here rather than discovered by a reader.
 
+- **`/proc` is readable.** Granted read-only in every run, because interpreters genuinely need it, so
+  the agent can enumerate other processes on the host. Visibility, not access: seccomp denies the
+  syscalls that would turn it into access — `ptrace` and `process_vm_readv`. Every container runtime
+  makes the same trade. Narrowing it to `/proc/self` is possible and not yet done.
+- **Forwarding rules outlive their run.** A veth pair is reaped with its namespace, but the `FORWARD`
+  DROP rules are not, so a supervisor killed with SIGKILL leaves two behind. They are inert — nothing
+  matches a device that no longer exists — but they accumulate, so each run prunes stale ones naming
+  a missing `hk`-prefixed interface before it starts.
 - **Cert-pinning agents.** An agent that pins certificates will refuse the mediator's CA. Its traffic
   cannot be recorded; the in-process shim is the workaround. Not solved.
 - **Encrypted ClientHello.** ECH would hide the SNI the mediator relies on to name the destination.

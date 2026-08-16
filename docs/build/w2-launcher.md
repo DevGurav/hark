@@ -210,8 +210,11 @@ never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens
 
 ### 2. Launcher
 
-- [ ] Create a network namespace and veth pair. Address the host end and the namespace end; bring up
-      `lo`. **Set no default route.**
+- [x] Create a network namespace and veth pair. Address the host end and the namespace end; bring up
+      `lo` — `internal/launcher/network_linux.go`. The default route points **at the mediator**, and
+      explicit `FORWARD` DROP rules stop the host routing packets onward, so the agent's traffic
+      reaches the mediator or nothing at all. This supersedes the original "no default route" plan,
+      which dropped packets silently and left nothing to record — see ADR-0006.
 - [x] Apply Landlock: read-only on `ReadPaths`, read-write on `WritePaths`, nothing else. The bundle
       path must not be reachable — `internal/launcher/landlock_linux.go`. ABI probed at startup and
       the run refuses below ABI 2; rights masked to what the kernel supports; `NO_NEW_PRIVS` set
@@ -221,7 +224,10 @@ never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens
       so clearing permitted first would strand it populated with no way left to empty it.
 - [x] Apply a seccomp filter — `internal/launcher/seccomp_linux.go`. Hand-assembled classic BPF,
       architecture pinned, `EPERM` rather than kill so a denial is a debuggable error.
-- [ ] Exec the child with the broker's placeholder environment.
+- [x] Exec the child with the supplied environment — `internal/launcher/launcher_linux.go`. The
+      binary re-executes itself with a sentinel argument and does all of it on one locked thread; see
+      [ADR-0007](../decisions/0007-re-executing-init-child.md).
+- [ ] Pass the broker's placeholders in as that environment. *(needs `hark run` wiring)*
 
 Two constraints the Landlock work imposes on the launcher, both verified against the kernel:
 

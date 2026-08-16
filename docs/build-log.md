@@ -4,6 +4,50 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — the launcher: containment working end to end
+
+The three restriction layers now actually reach an agent, via the re-executed init child that ties
+them together. `ADR-0007` has the design; this is what building it taught.
+
+**The integration test earned its place immediately.** Every unit test passed while the whole thing
+was broken. `DropCapabilities` reads `/proc/sys/kernel/cap_last_cap`, and it ran *after* Landlock had
+already made `/proc` unreadable — so the drop failed and the agent kept root's capabilities. Reading
+the code, the order looked fine; the original comment even justified it, claiming the earlier steps
+still needed `CAP_SYS_ADMIN`. They do not. Landlock is built for unprivileged callers and seccomp
+needs only `NO_NEW_PRIVS`.
+
+Fixed by dropping capabilities first, which is the better default anyway: everything after that line
+runs unprivileged, so a mistake in it has less to work with.
+
+**A second correction, this one to the design.** The original plan was a namespace with *no default
+route*, on the theory that no route means no escape. True, and useless: the packet dies in the
+routing table, the mediator never sees it, and nothing is recorded. The default route now points at
+the mediator, with explicit `FORWARD` DROP rules so the host cannot route onward regardless of its
+global `ip_forward` setting. Traffic reaches the mediator or it reaches nothing. This is ADR-0006
+arriving in the code.
+
+**A leak worth finding.** A veth pair is reaped with its namespace — deleting either end takes both —
+so teardown is usually a no-op on the success path. The `iptables` rules are *not* reaped. A
+supervisor killed before teardown leaves two rules naming an interface that no longer exists. They
+are inert, but they accumulate for as long as the host is up. Every run now prunes stale
+`hk`-prefixed rules before starting, so hark cleans up after its own past failures without anyone
+needing to know it should. Tests cover both directions: stale rules go, live and unrelated ones stay.
+
+That same fact caused a test failure that looked like a bug and was not: `TestTeardownRemovesTheBoundary`
+checked for the host interface after launching `true`, which had already exited and taken the veth
+with it. The agent sleeps now.
+
+**Verified.** Full launcher suite green as root on kernel 6.17: the agent runs, exit codes propagate,
+there is no route to the internet even with every proxy variable unset, the routing table contains
+nothing but the mediator, the audit log is unreadable, granted paths work, `CapEff` is all zeros
+despite a root supervisor, and `Seccomp: 2` confirms a filter is installed. Full suite green
+unprivileged and under `-race`. Zero stray interfaces or rules afterwards.
+
+**Next.** Bind the DNS responder and the TLS listener on the mediator address, record the boundary
+crossings, and wire it together behind `hark run`.
+
+---
+
 ## 2026-08-16 — seccomp, capabilities, and the DNS message layer
 
 **Seccomp.** Hand-assembled classic BPF rather than libseccomp, which would drag cgo and a system
