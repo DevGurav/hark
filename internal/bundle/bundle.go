@@ -94,6 +94,12 @@ func Create(path string, h Header) (*Writer, error) {
 		f.Close()
 		return nil, err
 	}
+	// Get the magic and header out immediately, so the file is a readable bundle
+	// from the moment it exists rather than from the first flush.
+	if err := bw.Flush(); err != nil {
+		f.Close()
+		return nil, err
+	}
 
 	return &Writer{f: f, w: bw, header: h, tree: mmr.New()}, nil
 }
@@ -112,6 +118,21 @@ func (w *Writer) Append(kind logfmt.Kind, monoNanos uint64, payload any) (uint64
 	seq := w.seq
 	next, err := logfmt.WriteFrame(w.w, kind, seq, monoNanos, w.chain, body)
 	if err != nil {
+		return 0, err
+	}
+
+	// Hand every frame to the operating system as it is written.
+	//
+	// This is what makes "a killed run leaves a verifiable prefix" true rather
+	// than merely intended. Buffered in userspace, a SIGKILL loses everything
+	// still in the buffer -- which for a short run is the entire bundle, leaving
+	// a zero-length file that cannot even be opened. Flushing per frame means the
+	// prefix survives anything short of the machine going down.
+	//
+	// It costs one write syscall per event, against a log whose events are
+	// produced by network round trips. Sync, which is the expensive one, stays
+	// reserved for denials.
+	if err := w.w.Flush(); err != nil {
 		return 0, err
 	}
 
