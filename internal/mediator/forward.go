@@ -51,6 +51,25 @@ func (m *Mediator) forward(conn net.Conn, host string) {
 	}
 	defer agent.Close()
 
+	agentReader := bufio.NewReader(agent)
+
+	// In playback there is no upstream at all. That is the property worth
+	// stating: a replayed run opens no outbound connection, so it cannot have
+	// side effects, cannot cost money, and cannot be affected by whether the
+	// endpoint happens to be up.
+	if m.cfg.Playback != nil {
+		for {
+			_ = agent.SetReadDeadline(time.Now().Add(forwardTimeout))
+			req, err := http.ReadRequest(agentReader)
+			if err != nil {
+				return
+			}
+			if err := m.exchange(req, host, nil, nil, agent); err != nil {
+				return
+			}
+		}
+	}
+
 	dial := m.cfg.DialUpstream
 	if dial == nil {
 		dial = func(h string) (net.Conn, error) {
@@ -71,7 +90,6 @@ func (m *Mediator) forward(conn net.Conn, host string) {
 	}
 	defer upstream.Close()
 
-	agentReader := bufio.NewReader(agent)
 	upstreamReader := bufio.NewReader(upstream)
 
 	for {
@@ -102,7 +120,10 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 	// implementations of "what makes this request the same request" would drift,
 	// and the way that failure shows up is replay serving the wrong response and
 	// reporting success.
-	key := m.keyFor(req.Method, host, req.URL.RequestURI(), req.Header, body)
+	canonical := reqkey.Canonicalise(req.Method, host, req.URL.RequestURI(), req.Header, body)
+	key := m.keyFor(canonical)
+	exchange := m.exchangeSeq.Add(1)
+
 	recorded := logfmt.LLMRequest{
 		Host:       host,
 		Method:     req.Method,
@@ -111,8 +132,23 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 		Body:       body,
 		RequestKey: key.Hash[:],
 		Occurrence: key.Occurrence,
+		Exchange:   exchange,
 	}
 	m.record(logfmt.KindLLMRequest, recorded)
+
+	// Playback answers from the recording and never dials out.
+	if m.cfg.Playback != nil {
+		res, err := m.cfg.Playback.Lookup(canonical)
+		if err != nil {
+			// Refusing is the point. Serving a near-miss would let replay report
+			// success while the agent saw an answer it never received.
+			m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{
+				Error: err.Error(), Exchange: exchange,
+			})
+			return err
+		}
+		return m.relayRecorded(res, agent, exchange)
+	}
 
 	outHeader, outBody := req.Header, body
 	if m.cfg.Broker != nil {
@@ -151,7 +187,77 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 		return err
 	}
 
-	return m.relayResponse(resp, agent)
+	return m.relayResponse(resp, agent, exchange)
+}
+
+// relayRecorded serves a recorded response back to the agent, re-recording it so
+// the replayed run produces its own bundle.
+//
+// Chunk boundaries are reproduced exactly, because agent code branches on
+// partial parses -- reassembling and re-splitting differently would change what
+// the agent saw even though the bytes matched.
+//
+// Inter-chunk timing is not reproduced. Sleeping through a recorded four-minute
+// run would defeat the point of replay being fast, and nothing in the
+// determinism claim depends on wall-clock spacing.
+func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange uint64) error {
+	head := &http.Response{
+		StatusCode: res.Status,
+		Header:     make(http.Header, len(res.Headers)),
+	}
+	for k, v := range res.Headers {
+		head.Header.Set(k, v)
+	}
+
+	// Frame the body by length.
+	//
+	// The recorded headers describe how the *original* response was framed, and
+	// that framing may not survive: an SSE stream arrives chunked with no
+	// Content-Length, and replaying those headers verbatim while writing the body
+	// raw leaves the client with no way to know where the response ends. It reads
+	// until the connection closes, which never happens because the mediator is
+	// waiting for the next request on the same connection.
+	//
+	// Since the whole body is already known, length-delimiting is both correct
+	// and simpler. What matters for fidelity is preserved either way: the chunk
+	// *arrival boundaries* are reproduced exactly by writing them separately, so
+	// a client parsing incrementally still sees the same partial reads it saw
+	// when the run was recorded.
+	var total int
+	for _, c := range res.Chunks {
+		total += len(c)
+	}
+	head.Header.Del("Transfer-Encoding")
+	head.Header.Del("Content-Length")
+	head.Header.Set("Content-Length", itoa(total))
+
+	if err := writeResponseHead(agent, head); err != nil {
+		return err
+	}
+
+	var relayErr error
+	for i, chunk := range res.Chunks {
+		m.record(logfmt.KindLLMResponseChunk, logfmt.LLMResponseChunk{
+			Seq: uint32(i), Data: chunk, Exchange: exchange,
+		})
+		if _, err := agent.Write(chunk); err != nil {
+			relayErr = err
+			break
+		}
+	}
+
+	end := logfmt.LLMResponseEnd{
+		Status:     res.Status,
+		Headers:    res.Headers,
+		ChunkCount: uint32(len(res.Chunks)),
+		Error:      res.Error,
+		Exchange:   exchange,
+	}
+	if relayErr != nil {
+		end.Error = relayErr.Error()
+	}
+	m.record(logfmt.KindLLMResponseEnd, end)
+	return relayErr
 }
 
 // relayResponse streams the response back to the agent, recording each chunk as
@@ -162,7 +268,7 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 // source of nondeterminism -- and once the client has reassembled them the
 // information is gone and cannot be recovered. This is what W3's replay depends
 // on.
-func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn) error {
+func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange uint64) error {
 	defer resp.Body.Close()
 
 	// Write the status line and headers first, so the agent can start parsing.
@@ -186,6 +292,7 @@ func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn) error {
 				Seq:       seq,
 				Data:      chunk,
 				SincePrev: now.Sub(lastAt).Nanoseconds(),
+				Exchange:  exchange,
 			})
 			seq++
 			lastAt = now
@@ -207,6 +314,7 @@ func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn) error {
 		Status:     resp.StatusCode,
 		Headers:    flatten(resp.Header),
 		ChunkCount: seq,
+		Exchange:   exchange,
 	}
 	if relayErr != nil {
 		end.Error = relayErr.Error()
@@ -230,9 +338,7 @@ func writeResponseHead(w io.Writer, resp *http.Response) error {
 //
 // One run can send byte-identical requests and get different answers -- a retry
 // after a 429 is the ordinary case -- so the ordinal is part of the identity.
-func (m *Mediator) keyFor(method, host, path string, h http.Header, body []byte) reqkey.Key {
-	canonical := reqkey.Canonicalise(method, host, path, h, body)
-
+func (m *Mediator) keyFor(canonical []byte) reqkey.Key {
 	m.occMu.Lock()
 	defer m.occMu.Unlock()
 	if m.occurrences == nil {

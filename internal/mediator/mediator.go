@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/DevGurav/hark/internal/broker"
@@ -26,6 +27,27 @@ import (
 //	:443  every connection it opens, since every name resolves here
 //
 // See ADR-0006 for why DNS is mediated rather than forwarded.
+
+// Playback is the mediator's view of a recorded run.
+//
+// An interface rather than *replay.Source so the mediator does not depend on the
+// replay package, which depends on the bundle reader -- and so a test can supply
+// a canned response without a file.
+type Playback interface {
+	// Lookup returns the recorded response for a canonicalised request, or an
+	// error if the recording has none. Failing is correct: a replayer that
+	// guesses can report success while feeding the agent an answer it never
+	// received.
+	Lookup(canonical []byte) (*PlaybackResponse, error)
+}
+
+// PlaybackResponse is a recorded upstream reply.
+type PlaybackResponse struct {
+	Status  int
+	Headers map[string]string
+	Chunks  [][]byte
+	Error   string
+}
 
 // Recorder is the mediator's view of the event log.
 //
@@ -58,6 +80,10 @@ type Config struct {
 	// instead of sleeping.
 	Started chan struct{}
 
+	// Playback serves recorded responses instead of dialling upstream. When set,
+	// the run makes no outbound connections at all.
+	Playback Playback
+
 	// DialUpstream overrides how an allowed host is reached. Nil means a real
 	// TLS dial to host:443.
 	//
@@ -86,6 +112,10 @@ type Mediator struct {
 	// inside the request path, not around recording.
 	occMu       sync.Mutex
 	occurrences map[hashchain.Hash]uint32
+
+	// exchange numbers request/response pairs so their events can be correlated
+	// after the fact. Concurrent connections interleave in the log.
+	exchangeSeq atomic.Uint64
 
 	closeOnce sync.Once
 	startOnce sync.Once

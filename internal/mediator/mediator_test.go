@@ -16,6 +16,7 @@ import (
 	"github.com/DevGurav/hark/internal/broker"
 	"github.com/DevGurav/hark/internal/logfmt"
 	"github.com/DevGurav/hark/internal/policy"
+	"github.com/DevGurav/hark/internal/reqkey"
 )
 
 // The mediator binds loopback on high ports in tests, which is what lets the
@@ -409,7 +410,7 @@ func TestIdenticalRequestsGetDistinctOccurrences(t *testing.T) {
 
 	var first [32]byte
 	for i := uint32(0); i < 3; i++ {
-		k := m.keyFor("POST", "h", "/p", h, body)
+		k := m.keyFor(reqkey.Canonicalise("POST", "h", "/p", h, body))
 		if k.Occurrence != i {
 			t.Fatalf("occurrence %d, expected %d", k.Occurrence, i)
 		}
@@ -420,7 +421,7 @@ func TestIdenticalRequestsGetDistinctOccurrences(t *testing.T) {
 		}
 	}
 
-	other := m.keyFor("POST", "h", "/other", h, body)
+	other := m.keyFor(reqkey.Canonicalise("POST", "h", "/other", h, body))
 	if other.Occurrence != 0 {
 		t.Fatalf("a different path shared an occurrence counter: %d", other.Occurrence)
 	}
@@ -431,7 +432,7 @@ func TestIdenticalRequestsGetDistinctOccurrences(t *testing.T) {
 	// Volatile headers must not split the counter, or a retry would look like a
 	// new request and replay would never match it.
 	noisy := http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"zzz"}}
-	if k := m.keyFor("POST", "h", "/p", noisy, body); k.Occurrence != 3 {
+	if k := m.keyFor(reqkey.Canonicalise("POST", "h", "/p", noisy, body)); k.Occurrence != 3 {
 		t.Fatalf("a volatile header started a new counter: occurrence %d", k.Occurrence)
 	}
 }
