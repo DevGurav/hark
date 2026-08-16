@@ -195,14 +195,18 @@ mediator testable without a file on disk, and it is the seam W3's playback mode 
 
 ### 1. Policy loader
 
-- [ ] TOML with `allow_hosts`, `read_paths`, `write_paths`, `[secrets]`.
-- [ ] Reject wildcards with a clear error. v0.1 is exact-match only; a half-implemented wildcard
+- [x] TOML with `allow_hosts`, `read_paths`, `write_paths`, `[secrets]`.
+- [x] Reject wildcards with a clear error. v0.1 is exact-match only; a half-implemented wildcard
       matcher is a security bug waiting to happen.
-- [ ] Return the raw bytes alongside the parsed policy, so `PolicyHash` covers what was actually on
+- [x] Return the raw bytes alongside the parsed policy, so `PolicyHash` covers what was actually on
       disk rather than a re-serialisation of it.
+- [x] Reject unknown keys, malformed hosts, relative paths and duplicate entries.
 
 **Acceptance.** Unit tests: a valid policy parses, a wildcard is rejected, an unknown key is
-rejected, and the same file always produces the same hash.
+rejected, and the same file always produces the same hash. **Done** — `internal/policy`.
+
+Note for the launcher: policy paths are Linux namespace paths and must be cleaned with `path.Clean`,
+never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens on Windows.
 
 ### 2. Launcher
 
@@ -243,7 +247,9 @@ non-cooperating agent's attempts recordable instead of silently dropped.
       address. Answer other qtypes with NOERROR and no answers so clients fall back to A.
 - [ ] Record `DnsQuery` and `DnsDecision` (next free event kind numbers — never renumber existing
       ones; update `docs/protocol.md` in the same commit).
-- [ ] Parse SNI from the ClientHello on the 443 listener to recover the intended host.
+- [x] Parse SNI from the ClientHello on the 443 listener to recover the intended host —
+      `internal/mediator/sni.go`. Bounds-checked throughout, fuzzed, and validates the recovered name
+      before it reaches policy or the log.
 - [ ] Handle the cases ADR-0006 lists as limitations: plain HTTP falls back to the `Host` header, a
       literal-IP dial is recorded as an attempt with an empty host rather than allowed by default.
 
