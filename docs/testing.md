@@ -10,7 +10,14 @@ go test ./... -bench=. -run='^$'
 Green means every test passes and `go vet ./...` is clean. There is no coverage threshold; coverage
 percentage is a poor proxy for whether the properties that matter are pinned down.
 
-Current state: 88 tests, 118 including subtests, across 8 packages, plus one fuzz target.
+Current state: 109 tests, 156 including subtests, across 9 packages, plus two fuzz targets.
+
+The launcher's tests need root and a Linux kernel. They skip otherwise, so the suite still runs
+unprivileged and on a non-Linux machine:
+
+```sh
+go test -c -o /tmp/launcher.test ./internal/launcher/ && sudo /tmp/launcher.test
+```
 
 ## What is tested at which level
 
@@ -114,9 +121,9 @@ has to come before any number is published.
 
 ## Deliberately not tested
 
-- **Kernel enforcement**, because it does not exist yet. When it lands in W2 it needs integration
-  tests on a real Linux kernel in CI, not unit tests with mocked syscalls — a mocked Landlock test
-  asserts nothing about whether Landlock was actually applied.
+- **Kernel enforcement with mocks.** It is tested, but only against a real kernel, never with mocked
+  syscalls — a mocked Landlock test asserts nothing about whether Landlock was actually applied.
+  These tests are not yet wired into CI, which needs a privileged runner step.
 - **Replay fidelity**, until there is a replayer. The W6 suite is the real test of the project's
   central claim, and it publishes its failures rather than a pass/fail.
 - **Concurrent in-process races inside the agent.** Out of scope by design; the replayer detects
