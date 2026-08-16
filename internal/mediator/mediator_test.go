@@ -404,14 +404,35 @@ func TestAllowedHostIsForwardedAndRecorded(t *testing.T) {
 // is the ordinary case and replay has to tell them apart.
 func TestIdenticalRequestsGetDistinctOccurrences(t *testing.T) {
 	m := &Mediator{}
+	h := http.Header{"Content-Type": []string{"application/json"}}
 	body := []byte(`{"a":1}`)
+
+	var first [32]byte
 	for i := uint32(0); i < 3; i++ {
-		if got := m.nextOccurrence("POST", "h", "/p", body); got != i {
-			t.Fatalf("occurrence %d, expected %d", got, i)
+		k := m.keyFor("POST", "h", "/p", h, body)
+		if k.Occurrence != i {
+			t.Fatalf("occurrence %d, expected %d", k.Occurrence, i)
+		}
+		if i == 0 {
+			first = k.Hash
+		} else if k.Hash != first {
+			t.Fatal("the same request produced different hashes")
 		}
 	}
-	if got := m.nextOccurrence("POST", "h", "/other", body); got != 0 {
-		t.Fatalf("a different path shared an occurrence counter: %d", got)
+
+	other := m.keyFor("POST", "h", "/other", h, body)
+	if other.Occurrence != 0 {
+		t.Fatalf("a different path shared an occurrence counter: %d", other.Occurrence)
+	}
+	if other.Hash == first {
+		t.Fatal("a different path produced the same hash")
+	}
+
+	// Volatile headers must not split the counter, or a retry would look like a
+	// new request and replay would never match it.
+	noisy := http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"zzz"}}
+	if k := m.keyFor("POST", "h", "/p", noisy, body); k.Occurrence != 3 {
+		t.Fatalf("a volatile header started a new counter: occurrence %d", k.Occurrence)
 	}
 }
 

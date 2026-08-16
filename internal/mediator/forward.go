@@ -12,6 +12,7 @@ import (
 
 	"github.com/DevGurav/hark/internal/hashchain"
 	"github.com/DevGurav/hark/internal/logfmt"
+	"github.com/DevGurav/hark/internal/reqkey"
 )
 
 // Forwarding an allowed connection.
@@ -96,14 +97,20 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 
 	// Record what the agent sent, placeholders and all, before injection. The
 	// broker works on copies, so this is the untouched original by construction.
+	//
+	// The key is derived with the same canonicalisation replay will use. Two
+	// implementations of "what makes this request the same request" would drift,
+	// and the way that failure shows up is replay serving the wrong response and
+	// reporting success.
+	key := m.keyFor(req.Method, host, req.URL.RequestURI(), req.Header, body)
 	recorded := logfmt.LLMRequest{
 		Host:       host,
 		Method:     req.Method,
 		Path:       req.URL.RequestURI(),
 		Headers:    flatten(req.Header),
 		Body:       body,
-		RequestKey: requestKey(req.Method, host, req.URL.RequestURI(), body),
-		Occurrence: m.nextOccurrence(req.Method, host, req.URL.RequestURI(), body),
+		RequestKey: key.Hash[:],
+		Occurrence: key.Occurrence,
 	}
 	m.record(logfmt.KindLLMRequest, recorded)
 
@@ -219,34 +226,19 @@ func writeResponseHead(w io.Writer, resp *http.Response) error {
 	return err
 }
 
-// nextOccurrence counts how many byte-identical requests this run has already
-// issued.
+// keyFor derives a request's identity, advancing the run's occurrence counter.
 //
-// One run can send the same request twice and receive different answers -- a
-// retry after a 429 is the ordinary case. Replay needs to tell those apart, so
-// the ordinal is recorded now even though the matching logic lands in W3.
-func (m *Mediator) nextOccurrence(method, host, path string, body []byte) uint32 {
-	key := string(requestKey(method, host, path, body))
+// One run can send byte-identical requests and get different answers -- a retry
+// after a 429 is the ordinary case -- so the ordinal is part of the identity.
+func (m *Mediator) keyFor(method, host, path string, h http.Header, body []byte) reqkey.Key {
+	canonical := reqkey.Canonicalise(method, host, path, h, body)
 
 	m.occMu.Lock()
 	defer m.occMu.Unlock()
 	if m.occurrences == nil {
-		m.occurrences = make(map[string]uint32)
+		m.occurrences = make(map[hashchain.Hash]uint32)
 	}
-	n := m.occurrences[key]
-	m.occurrences[key] = n + 1
-	return n
-}
-
-// requestKey hashes the parts of a request that identify it.
-//
-// Headers are deliberately excluded for now: they carry the injected credential
-// and per-request noise, and canonicalising them properly is a two-day job that
-// belongs with the replay work. Method, host, path and body are enough to
-// distinguish requests within a run.
-func requestKey(method, host, path string, body []byte) []byte {
-	h := hashchain.Leaf(0, 0, []byte(method+"\x00"+host+"\x00"+path+"\x00"+string(body)))
-	return h[:]
+	return reqkey.Derive(canonical, m.occurrences)
 }
 
 func flatten(h http.Header) map[string]string {

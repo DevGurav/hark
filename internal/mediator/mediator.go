@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DevGurav/hark/internal/broker"
+	"github.com/DevGurav/hark/internal/hashchain"
 	"github.com/DevGurav/hark/internal/logfmt"
 	"github.com/DevGurav/hark/internal/policy"
 )
@@ -84,7 +85,7 @@ type Mediator struct {
 	// apart from the call it repeats. Separate from mu because it is taken
 	// inside the request path, not around recording.
 	occMu       sync.Mutex
-	occurrences map[string]uint32
+	occurrences map[hashchain.Hash]uint32
 
 	closeOnce sync.Once
 	startOnce sync.Once
