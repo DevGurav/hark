@@ -48,7 +48,9 @@ func main() {
 		err = cmdKeygen(os.Args[2:])
 	case "synth":
 		err = cmdSynth(os.Args[2:])
-	case "run", "replay", "fork", "bisect":
+	case "run":
+		err = cmdRun(os.Args[2:])
+	case "replay", "fork", "bisect":
 		fmt.Fprintf(os.Stderr, "hark %s: not implemented yet -- see docs/roadmap.md\n", os.Args[1])
 		os.Exit(2)
 	case "version", "--version", "-v":
@@ -79,8 +81,11 @@ bundle commands
   synth    <bundle>            write a synthetic bundle, for testing
   keygen   -out <path>         create an Ed25519 signing key
 
-runtime commands (not yet implemented)
-  run, replay, fork, bisect
+runtime commands
+  run      -policy FILE [-o BUNDLE] [-key FILE] [-write DIR] -- COMMAND...
+           run COMMAND inside a recorded, contained namespace (Linux, root)
+
+  replay, fork, bisect        not yet implemented
 
   version                      print the version
   help                         print this message
