@@ -8,6 +8,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/DevGurav/hark/internal/launcher"
 )
 
 // Version is the recorder identity stamped into every bundle. Bundles written by
@@ -16,6 +18,19 @@ import (
 const Version = "hark 0.1.0-dev"
 
 func main() {
+	// The launcher re-executes this binary to build the agent's containment on a
+	// locked thread before exec. That branch must be taken before anything else
+	// happens -- it is not a subcommand, it is a different process role, and the
+	// child must not touch flags, logging or anything with global state.
+	if launcher.IsInit(os.Args) {
+		if err := launcher.Init(); err != nil {
+			fmt.Fprintln(os.Stderr, "hark init:", err)
+			os.Exit(126)
+		}
+		// Unreachable: Init ends in execve.
+		os.Exit(127)
+	}
+
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)

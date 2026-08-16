@@ -29,6 +29,16 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	// Launch re-executes /proc/self/exe, which under `go test` is this binary.
+	// Handling the sentinel here is what lets the launcher be tested at all.
+	if IsInit(os.Args) {
+		if err := Init(); err != nil {
+			fmt.Fprintln(os.Stderr, "init:", err)
+			os.Exit(126)
+		}
+		os.Exit(127)
+	}
+
 	switch os.Getenv("HARK_HELPER") {
 	case "landlock":
 		landlockHelper()
@@ -86,8 +96,8 @@ func landlockHelper() {
 	os.Exit(exitOperationAllowed)
 }
 
-// run executes the helper and returns its exit code.
-func run(t *testing.T, ro, rw []string, op, target string) int {
+// runLandlock executes the helper and returns its exit code.
+func runLandlock(t *testing.T, ro, rw []string, op, target string) int {
 	t.Helper()
 
 	cmd := exec.Command(os.Args[0])
@@ -142,7 +152,7 @@ func TestUngrantedPathIsUnreadable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := run(t, []string{allowed}, nil, "read", secret); code != exitOperationDenied {
+	if code := runLandlock(t, []string{allowed}, nil, "read", secret); code != exitOperationDenied {
 		t.Fatalf("read a file outside every granted path (exit %d)", code)
 	}
 }
@@ -156,7 +166,7 @@ func TestGrantedPathIsReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := run(t, []string{dir}, nil, "read", f); code != exitOperationAllowed {
+	if code := runLandlock(t, []string{dir}, nil, "read", f); code != exitOperationAllowed {
 		t.Fatalf("could not read a file inside a granted path (exit %d)", code)
 	}
 }
@@ -172,7 +182,7 @@ func TestReadOnlyPathRejectsWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := run(t, []string{dir}, nil, "write", f); code != exitOperationDenied {
+	if code := runLandlock(t, []string{dir}, nil, "write", f); code != exitOperationDenied {
 		t.Fatalf("wrote to a read-only path (exit %d)", code)
 	}
 }
@@ -181,7 +191,7 @@ func TestWritablePathAcceptsWrites(t *testing.T) {
 	requireLandlock(t)
 
 	dir := t.TempDir()
-	if code := run(t, nil, []string{dir}, "create", dir); code != exitOperationAllowed {
+	if code := runLandlock(t, nil, []string{dir}, "create", dir); code != exitOperationAllowed {
 		t.Fatalf("could not create a file in a writable path (exit %d)", code)
 	}
 }
@@ -206,19 +216,19 @@ func TestRealisticLayout(t *testing.T) {
 
 	ro, rw := []string{app}, []string{work}
 
-	if code := run(t, ro, rw, "read", src); code != exitOperationAllowed {
+	if code := runLandlock(t, ro, rw, "read", src); code != exitOperationAllowed {
 		t.Fatalf("agent could not read its own source (exit %d)", code)
 	}
-	if code := run(t, ro, rw, "create", work); code != exitOperationAllowed {
+	if code := runLandlock(t, ro, rw, "create", work); code != exitOperationAllowed {
 		t.Fatalf("agent could not write to its workspace (exit %d)", code)
 	}
-	if code := run(t, ro, rw, "write", src); code != exitOperationDenied {
+	if code := runLandlock(t, ro, rw, "write", src); code != exitOperationDenied {
 		t.Fatalf("agent modified its own read-only source (exit %d)", code)
 	}
-	if code := run(t, ro, rw, "read", bundle); code != exitOperationDenied {
+	if code := runLandlock(t, ro, rw, "read", bundle); code != exitOperationDenied {
 		t.Fatalf("agent read the audit log it is being recorded into (exit %d)", code)
 	}
-	if code := run(t, ro, rw, "write", bundle); code != exitOperationDenied {
+	if code := runLandlock(t, ro, rw, "write", bundle); code != exitOperationDenied {
 		t.Fatalf("agent wrote to the audit log it is being recorded into (exit %d)", code)
 	}
 }
@@ -233,7 +243,7 @@ func TestEmptyRulesetDeniesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := run(t, nil, nil, "read", f); code != exitOperationDenied {
+	if code := runLandlock(t, nil, nil, "read", f); code != exitOperationDenied {
 		t.Fatalf("an empty ruleset allowed a read (exit %d)", code)
 	}
 }

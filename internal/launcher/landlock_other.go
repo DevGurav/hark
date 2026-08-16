@@ -2,7 +2,10 @@
 
 package launcher
 
-import "errors"
+import (
+	"errors"
+	"os"
+)
 
 // Stubs for non-Linux hosts.
 //
@@ -43,3 +46,56 @@ func DropCapabilities() error { return ErrUnsupported }
 
 // HasCapabilities always fails off Linux.
 func HasCapabilities() (bool, error) { return false, ErrUnsupported }
+
+// InitArg is the sentinel marking the re-executed child.
+const InitArg = "__hark-init"
+
+// SystemReadPaths would be granted read-only on Linux.
+var SystemReadPaths []string
+
+// Spec describes one contained run.
+type Spec struct {
+	Argv       []string
+	Env        []string
+	WorkDir    string
+	ReadPaths  []string
+	WritePaths []string
+	Stdin      *os.File
+	Stdout     *os.File
+	Stderr     *os.File
+}
+
+// Network describes one boundary.
+type Network struct {
+	HostIF     string
+	PeerIF     string
+	HostCIDR   string
+	PeerCIDR   string
+	MediatorIP string
+}
+
+// Handle refers to a running agent.
+type Handle struct {
+	Pid     int
+	Network Network
+}
+
+// Launch always fails off Linux.
+func Launch(Spec) (*Handle, error) { return nil, ErrUnsupported }
+
+// Wait always fails off Linux.
+func (h *Handle) Wait() (int, error) { return -1, ErrUnsupported }
+
+// Kill always fails off Linux.
+func (h *Handle) Kill() error { return ErrUnsupported }
+
+// Close always fails off Linux.
+func (h *Handle) Close() error { return ErrUnsupported }
+
+// Init always fails off Linux.
+func Init() error { return ErrUnsupported }
+
+// IsInit reports whether this process is the re-executed child.
+func IsInit(args []string) bool {
+	return len(args) > 1 && args[1] == InitArg
+}
