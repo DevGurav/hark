@@ -281,3 +281,49 @@ func TestNewRejectsBadMode(t *testing.T) {
 		t.Fatal("accepted recording with no recorder")
 	}
 }
+
+// Some patched functions are implemented in terms of others: uuid.uuid4 calls
+// os.urandom underneath.
+//
+// Without a re-entrancy guard, recording captures both the inner draw and the
+// outer result while replay serves only the outer one from its own queue, so the
+// queues drift apart and a later os.urandom is answered with bytes recorded for
+// the uuid. The replay then reports success while the agent sees a value it
+// never saw -- which is the exact failure this project exists to prevent.
+//
+// This regressed once, caught the first time the shim was run against a real
+// interpreter rather than reasoned about.
+func TestNestedCaptureDoesNotDesynchronise(t *testing.T) {
+	const code = `
+import os, uuid
+print("u=%s" % uuid.uuid4())
+print("x=%s" % os.urandom(8).hex())
+print("u2=%s" % uuid.uuid4())
+print("x2=%s" % os.urandom(4).hex())
+`
+	rec := &capture{}
+	recServer := start(t, ModeRecord, rec, nil)
+
+	first, err := runAgent(t, recServer, code)
+	if err != nil {
+		t.Fatalf("recording failed: %v\n%s", err, first)
+	}
+
+	// One value per outermost call, not one per underlying draw.
+	snap := recServer.snapshot()
+	if got := len(snap["uuid.uuid4"]); got != 2 {
+		t.Fatalf("recorded %d uuid values, expected 2", got)
+	}
+	if got := len(snap["os.urandom"]); got != 2 {
+		t.Fatalf("recorded %d urandom values, expected 2 -- uuid4's internal draw leaked in", got)
+	}
+
+	replayServer := start(t, ModeReplay, nil, snap)
+	second, err := runAgent(t, replayServer, code)
+	if err != nil {
+		t.Fatalf("replay failed: %v\n%s", err, second)
+	}
+	if first != second {
+		t.Fatalf("nested capture desynchronised.\n--- recorded ---\n%s\n--- replayed ---\n%s", first, second)
+	}
+}

@@ -26,6 +26,40 @@ import json
 import os
 import socket
 import sys
+import threading
+
+# Re-entrancy guard.
+#
+# Some patched functions are implemented in terms of others: uuid.uuid4 calls
+# os.urandom. Without a guard, recording captures both the inner draw and the
+# outer result, while replay serves the outer one from its own queue and never
+# consumes the inner -- so the queues drift apart and a later os.urandom is
+# answered with bytes recorded for something else.
+#
+# That is precisely the silent failure this whole design is meant to avoid: the
+# replay reports success while the agent sees a value it never saw. Only the
+# outermost capture is recorded, so record and replay consume in step.
+#
+# Thread-local because an agent may draw randomness from several threads, and a
+# global flag would let one thread suppress another's capture.
+_local = threading.local()
+
+
+def _entered():
+    return getattr(_local, "capturing", False)
+
+
+class _outermost:
+    """True only for the outermost patched call on this thread."""
+
+    def __enter__(self):
+        self.previous = _entered()
+        _local.capturing = True
+        return not self.previous
+
+    def __exit__(self, *_):
+        _local.capturing = self.previous
+        return False
 
 _SOCKET = os.environ.get("HARK_SHIM_SOCKET")
 _MODE = os.environ.get("HARK_SHIM_MODE")  # "record" or "replay"
@@ -137,23 +171,30 @@ def _install():
 
     if recording:
         def _random():
-            v = real_random()
-            _record("random.random", v)
-            return v
+            with _outermost() as outer:
+                v = real_random()
+            return _record("random.random", v) if outer else v
 
         def _getrandbits(k):
-            v = real_getrandbits(k)
-            _record("random.getrandbits", v)
-            return v
+            with _outermost() as outer:
+                v = real_getrandbits(k)
+            return _record("random.getrandbits", v) if outer else v
 
         def _urandom(n):
-            v = real_urandom(n)
-            _record("os.urandom", v.hex())
+            with _outermost() as outer:
+                v = real_urandom(n)
+            if outer:
+                _record("os.urandom", v.hex())
             return v
 
         def _uuid4():
-            v = real_uuid4()
-            _record("uuid.uuid4", str(v))
+            # The guard is held across real_uuid4 precisely because it calls
+            # os.urandom underneath: that inner draw must not be recorded
+            # separately, or replay would consume it out of order.
+            with _outermost() as outer:
+                v = real_uuid4()
+            if outer:
+                _record("uuid.uuid4", str(v))
             return v
     else:
         def _random():
