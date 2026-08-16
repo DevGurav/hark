@@ -63,21 +63,30 @@ its prefix intact.
 - [x] TOML policy loader. Not a DSL — an allowlist.
 - [x] `hark run`.
 
-## W3 — replay · not started
+## W3 — replay · **done**
 
 Spec: [build/w3-replay.md](build/w3-replay.md)
 
-Second-highest variance. Deliverable: `hark run` then `hark replay` reports REPLAY-EQUAL on an agent
-that genuinely calls a model.
+Second-highest variance. Deliverable met: a Python agent drawing a uuid, a random number and the
+clock, fetching an allowed host and being denied a disallowed one, replayed identically.
 
-- [ ] Mediator playback mode.
-- [ ] Request keying on `(canonical_request_hash, occurrence_ordinal)` with strict sequence position
+```text
+REPLAY-EQUAL  22 actions, digest f6ac72c5...
+```
+
+Measured on kernel 6.17: 18 packets to :443 during the recording, **0 during the replay**. Changing
+the agent produces `REPLAY-DIVERGED at action 6` naming both sides. Replaying a replay yields the
+same digest, so a replayed bundle is itself a faithful recording.
+
+- [x] Mediator playback mode.
+- [x] Request keying on `(canonical_request_hash, occurrence_ordinal)` with strict sequence position
       as fallback, and a `KeyMismatch` diagnostic rather than a guess. Budget two full days for
       canonicalisation: header ordering, `Date`, connection-specific headers, JSON key order, float
       formatting.
-- [ ] Python `sitecustomize` shim for `time.time`, `time.monotonic`, `random`, `uuid4`,
+- [x] Python `sitecustomize` shim for `time.time`, `time.monotonic`, `random`, `uuid4`,
       `os.urandom`, plus `PYTHONHASHSEED=0`.
-- [ ] Replay equality: recompute the chain root, or report the first divergent event.
+- [x] Replay equality: a digest over normalised actions, or the first divergent event named. Not the
+      Merkle root — see the build log for why comparing roots could never work.
 
 ## W4 — the incident, and v0.1 · not started
 

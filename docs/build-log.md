@@ -4,6 +4,59 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — W3 closes: REPLAY-EQUAL
+
+```text
+REPLAY-EQUAL  22 actions, digest f6ac72c536be07e635eb5b9f623b8cb8b1a9b8f7ea67e90e822e1526c751be13
+```
+
+A Python agent drawing a uuid, a random number and the clock, fetching an allowed host and being
+denied a disallowed one, replayed identically. This is the claim the project rests on.
+
+**What REPLAY-EQUAL compares, and why it is not the root.** Two runs of the same agent cannot produce
+the same Merkle root and never could: the run id is fresh per run, wall-clock and monotonic
+timestamps differ, and a credential placeholder embeds the run id. Comparing roots would report a
+divergence on *every* replay, including a perfect one. So the comparison is a digest over normalised
+actions, with the volatile fields zeroed and everything else — response bodies, policy decisions,
+hosts, ordering, exit code — participating. Each exclusion is justified where it is made, because
+anything excluded is something the digest does not check.
+
+**Three bugs, and every one of them only appeared when it ran.**
+
+The live path had the same framing bug I had already fixed in playback. Hand-writing the status line
+and headers and streaming the body raw only works when the upstream sent a Content-Length; without
+one the agent read until the connection closed, which never came because the mediator was waiting for
+the next request. The symptom was an agent timing out while holding a complete response it could not
+see the end of — and because the mediator had already recorded every byte, the *recording* looked
+perfect. Only the live run failed. `Response.Write` now derives the framing the way a real server
+does, with the body wrapped so chunk recording is unaffected.
+
+Replay rebuilt the `PolicyLoaded` event instead of re-emitting the recorded one, so `Source` differed
+(`demo.toml` versus `recorded`) and the digest diverged at action 1 over a field describing where the
+policy came from rather than what it permitted.
+
+The replaying shim served clock and RNG values without recording them, so the replayed bundle was
+missing exactly the reads the shim had answered — three fewer actions, and a divergence the replay
+had caused itself.
+
+**Falsifiability, checked rather than assumed.** A tool that only ever says REPLAY-EQUAL is worthless.
+Changing the agent produced `REPLAY-DIVERGED at action 6`, naming both sides —
+`dns A example.com` against `dns A other.example` — with the preceding actions for context. And the
+no-egress claim is now measured: 18 packets to :443 during the recording, **0** during the replay.
+
+**A property worth having.** Replaying a replay produces the same digest as the original, so a
+replayed bundle is a faithful recording in its own right. Replay also needs no credentials at all:
+placeholders are rebuilt with dummy values, which works because canonicalisation normalises them
+anyway. Someone who cannot authenticate to the endpoints a run used can still replay it.
+
+**Verified.** Full suite green across thirteen packages on the box, race-clean, launcher suite green
+as root. Record/replay verified end to end on kernel 6.17 with CPython 3.12.
+
+**Next.** W4: the incident demo, `hark fork`, the static HTML trace report, Rekor anchoring, and
+benchmarks. v0.1 ships there.
+
+---
+
 ## 2026-08-16 — the shim, run for the first time
 
 Ran the shim against a real interpreter, and it failed on the first test. Worth recording exactly

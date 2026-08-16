@@ -130,6 +130,23 @@ rather than papered over: if replay diverges, the chain root differs and the rep
 first divergent event instead of claiming success. A tool that says "I could not reproduce this,
 here is where it diverged" is more trustworthy than one that always says OK.
 
+## What replay compares
+
+Not the Merkle root. Two runs of the same agent cannot produce the same root: the run id is fresh,
+timestamps differ, and a credential placeholder embeds the run id. Comparing roots would report a
+divergence on every replay, including a perfect one.
+
+`REPLAY-EQUAL` is a digest over the *normalised actions*. Zeroed before hashing: run id, recorder
+version, wall-clock timestamps, inter-chunk delays, and the clock values themselves (served back
+verbatim over the shim channel, and stored only as a lossy nanosecond rendering). Placeholder tokens
+are normalised, since they embed the run id.
+
+Everything else participates — request bodies, response bodies, policy decisions, hosts, ordering,
+and the exit code.
+
+A divergence reports the first differing action and names both sides, because "not equal" leaves the
+reader diffing two bundles by hand.
+
 ## Fork semantics
 
 ```text
