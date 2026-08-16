@@ -3,6 +3,7 @@ module github.com/DevGurav/hark
 go 1.23
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/fxamacker/cbor/v2 v2.7.0
 	lukechampine.com/blake3 v1.3.0
 )
