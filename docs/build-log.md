@@ -4,6 +4,43 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — the shim, run for the first time
+
+Ran the shim against a real interpreter, and it failed on the first test. Worth recording exactly
+how, because the bug was invisible to reading and the symptom was the one this project exists to
+prevent.
+
+`uuid.uuid4()` calls `os.urandom()` underneath, and both are patched. Recording captured the inner
+draw *and* the outer result; replay served only the outer one from its own queue and never consumed
+the inner. The queues drifted apart, so a later `os.urandom(8)` came back with the sixteen bytes
+recorded for the uuid:
+
+```text
+recorded  x=c8c779385d75de7a
+replayed  x=2bc7bcf84663a7e715483fd4036a46ee   <- the uuid's bytes
+```
+
+The replay would have reported success while the agent saw a value it never saw. A thread-local
+re-entrancy guard now records only the outermost patched call, so record and replay consume in step.
+Thread-local rather than a plain flag, because an agent may draw from several threads and a global
+would let one suppress another's capture.
+
+The regression test asserts the recorded value *counts* — two uuids and two urandom draws, not four
+urandom draws — so a reappearance fails on a number rather than on a confusing diff of random hex.
+
+**The lesson, not the bug.** Everything about this was reasoned through carefully and written down
+before it ran, and it was still wrong. Nesting between patched functions is not visible in either
+function; it only exists in the pair. This is the second time in the project that running the code
+found something reading it could not have — the first was the capability drop reading `/proc` after
+Landlock had closed it.
+
+**Verified.** All 9 shim tests green against CPython 3.12 on kernel 6.17. Full suite green on the box
+across thirteen packages, launcher suite green as root.
+
+**Next.** `hark replay` — the last piece of W3.
+
+---
+
 ## 2026-08-16 — playback, and the in-process shim
 
 **A structural flaw, found before it could bite.** The log has a total order over boundary
