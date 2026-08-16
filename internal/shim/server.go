@@ -191,22 +191,11 @@ func (s *Server) record(req request) reply {
 		return reply{Err: "not recording"}
 	}
 
-	kind := logfmt.KindRandomRead
-	var payload any
-	if isClock(req.Src) {
-		kind = logfmt.KindClockRead
-		payload = logfmt.ClockRead{Source: req.Src, Value: clockNanos(req.Src, req.Val)}
-	} else {
-		payload = logfmt.RandomRead{Source: req.Src, Data: req.Val}
-	}
-
 	s.mu.Lock()
 	s.queues[req.Src] = append(s.queues[req.Src], append(json.RawMessage(nil), req.Val...))
 	s.mu.Unlock()
 
-	if _, err := s.recorder.Append(kind, payload); err != nil {
-		return reply{Err: err.Error()}
-	}
+	s.appendEvent(req.Src, req.Val)
 	return reply{OK: true}
 }
 
@@ -231,7 +220,28 @@ func (s *Server) serve(req request) reply {
 	}
 	val := queue[0]
 	s.queues[req.Src] = queue[1:]
+
+	// Record on the way out as well as on the way in.
+	//
+	// A replayed run has to produce the same events as the recording, or the
+	// action sequences differ by exactly the reads the shim served and every
+	// replay reports a divergence it caused itself. It also means the replayed
+	// bundle is a complete recording in its own right, and can be replayed again.
+	if s.recorder != nil {
+		s.appendEvent(req.Src, val)
+	}
 	return reply{OK: true, Val: val}
+}
+
+// appendEvent writes one captured value to the log.
+func (s *Server) appendEvent(src string, val json.RawMessage) {
+	if isClock(src) {
+		_, _ = s.recorder.Append(logfmt.KindClockRead,
+			logfmt.ClockRead{Source: src, Value: clockNanos(src, val)})
+		return
+	}
+	_, _ = s.recorder.Append(logfmt.KindRandomRead,
+		logfmt.RandomRead{Source: src, Data: val})
 }
 
 // Remaining reports how many recorded values were never consumed, per source.
