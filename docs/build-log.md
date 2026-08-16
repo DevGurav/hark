@@ -4,6 +4,49 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — W2 closes: `hark run`, and three bugs only running it could find
+
+The acceptance criterion is met. A `curl`-driven agent, with `HTTPS_PROXY`, `https_proxy` and
+`ALL_PROXY` all unset, fetched an allowed host and then tried to exfiltrate to `evil.example`. Both
+are on the record; the second was refused. `hark verify` returns VERIFIED over 19 events.
+
+The three bugs are the story of this session, and none of them was visible in the code.
+
+**Agent output went nowhere.** `Spec`'s stdio fields are `*os.File`, `exec.Cmd`'s are `io.Writer`.
+Assigning a nil `*os.File` to an interface produces a non-nil interface holding a nil pointer, so the
+`== nil` fallback never fired and every write failed silently. The agent ran fine and its exit code
+propagated correctly — `RunEnd` recorded `exit 42` when asked for it — so the only symptom was a
+program that appeared to produce nothing at all. Textbook Go, and invisible until something needed to
+print.
+
+**The bind-mounted resolv.conf needed its own Landlock rule.** A rule covers a hierarchy, and a bind
+mount is its own mount point: the file is not beneath the rule on `/etc`, and it is no longer reached
+through the rule on the source directory either. Granting both looks sufficient and is not. The agent
+got EACCES on `/etc/resolv.conf`, every lookup failed, and nothing reached the mediator — which
+presented as a run recording four events and an agent whose curls all returned HTTP 000.
+
+**Landlock then refused that rule with EINVAL**, because the read set includes `READ_DIR` and the
+kernel rejects directory-only rights on a regular file. Rights are now masked by what the path
+actually is. Easy to miss, because every path in a policy is normally a directory — the first
+non-directory rule is what surfaces it, and the error says only "invalid argument".
+
+**A documented guarantee that was not true.** The format is built around a crashed run staying
+verifiable up to its last intact frame. Buffered in userspace, a SIGKILL lost everything still in the
+buffer — for a short run, the entire bundle, leaving a zero-length file that could not even be opened.
+`hark verify` on a killed run said "reading magic: EOF" rather than reporting the prefix. Frames are
+now handed to the OS as written; a killed run verifies as `TRUNCATED` with its events intact.
+
+**Verified on kernel 6.17.** 19 events for the incident, `VERIFIED`. Signed runs verify against a
+pinned key. An inclusion proof for the denial is 517 bytes against a 3,574-byte bundle. A killed run
+reports `TRUNCATED` and exit 3 with its prefix readable. Leaked forwarding rules from that killed run
+were pruned by the next one, 2 down to 0. No stray interfaces. Full suite green on both machines,
+race-clean across all ten packages, launcher suite green as root.
+
+**Next.** W3: replay. Request canonicalisation is the two-day task and the one most likely to
+overrun.
+
+---
+
 ## 2026-08-16 — the mediator listens
 
 DNS responder, TLS termination, policy evaluation and the forwarding path. Written off-VM, because

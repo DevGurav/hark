@@ -32,21 +32,36 @@ Spec: [build/w0-groundwork.md](build/w0-groundwork.md)
 - [x] Test suite green: 47 tests (52 including subtests) across 6 packages.
 - [x] ADRs 0001–0005.
 
-## W2 — launcher, mediator, broker · not started
+## W2 — launcher, mediator, broker · **done**
 
 Spec: [build/w2-launcher.md](build/w2-launcher.md)
 
-The highest-variance week. Deliverable: a curl-based fake agent produces a real event log containing
-a real denial.
+The highest-variance week. Deliverable met: a `curl`-driven agent produced a bundle containing a real
+denial, verified end to end on kernel 6.17.
 
-- [ ] `internal/launcher` — network namespace and veth pair; Landlock filesystem scoping; seccomp
+```text
+ 7  EgressAttempt    example.com:443 (tcp)
+ 8  EgressDecision   allowed example.com by allow_hosts:example.com
+ 9  LlmRequest       GET example.com/
+10  LlmResponseChunk chunk 0, 559 bytes
+12  DnsQuery         A evil.example
+13  DnsDecision      evil.example -> 10.200.1.1 (policy: DENIED)
+16  EgressAttempt    evil.example:443 (tcp)
+17  EgressDecision   DENIED evil.example by allow_hosts: host not in the policy allowlist
+```
+
+The agent had every proxy variable unset and still named its destination twice. An inclusion proof
+for the denial is 517 bytes against a 3,574-byte bundle; a killed run verifies as `TRUNCATED` with
+its prefix intact.
+
+- [x] `internal/launcher` — network namespace and veth pair; Landlock filesystem scoping; seccomp
       with `NO_NEW_PRIVS`; drop all capabilities.
-- [ ] `internal/mediator` — TLS termination with a CA under `hark`'s control, HTTP recording,
+- [x] `internal/mediator` — TLS termination with a CA under `hark`'s control, HTTP recording,
       egress allowlist evaluation.
-- [ ] `internal/broker` — placeholder credentials in the agent's environment, real values injected
+- [x] `internal/broker` — placeholder credentials in the agent's environment, real values injected
       on egress to allowlisted hosts only.
-- [ ] TOML policy loader. Not a DSL — an allowlist.
-- [ ] `hark run`.
+- [x] TOML policy loader. Not a DSL — an allowlist.
+- [x] `hark run`.
 
 ## W3 — replay · not started
 
