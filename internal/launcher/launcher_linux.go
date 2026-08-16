@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"runtime"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Launching the agent inside its containment.
@@ -79,6 +81,26 @@ type Spec struct {
 	Stdin  *os.File
 	Stdout *os.File
 	Stderr *os.File
+
+	// ResolvConf is a file on the host bind-mounted over /etc/resolv.conf inside
+	// the agent's mount namespace, pointing its resolver at the mediator.
+	//
+	// The documented trick for this is /etc/netns/<name>/resolv.conf, which
+	// `ip netns exec` bind-mounts for you -- but that only works for a *named*
+	// namespace. The agent's is anonymous, created by clone(CLONE_NEWNET), so
+	// the mount has to be done directly. Empty means leave the host's resolver
+	// alone.
+	ResolvConf string
+
+	// BeforeRelease runs after the boundary is built and before the agent is
+	// released, with the addresses that were assigned.
+	//
+	// This exists because of an ordering knot: the mediator has to listen on the
+	// veth address, which does not exist until the interface is configured, and
+	// the agent must not run before the mediator is listening. The barrier the
+	// child already blocks on is the natural place to resolve it. An error here
+	// aborts the run and the agent never starts.
+	BeforeRelease func(n Network) error
 }
 
 // childSpec is what actually crosses the pipe. It excludes the file handles,
@@ -89,6 +111,7 @@ type childSpec struct {
 	WorkDir    string   `json:"work_dir"`
 	ReadPaths  []string `json:"read_paths"`
 	WritePaths []string `json:"write_paths"`
+	ResolvConf string   `json:"resolv_conf"`
 }
 
 // Handle refers to a running agent.
@@ -139,17 +162,34 @@ func Launch(s Spec) (*Handle, error) {
 	defer writePipe.Close()
 
 	cmd := exec.Command("/proc/self/exe", InitArg)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = s.Stdin, s.Stdout, s.Stderr
-	if cmd.Stdout == nil {
+
+	// Assign only when the file is actually present.
+	//
+	// Spec's fields are *os.File and Cmd's are io.Writer. Assigning a nil
+	// *os.File to an interface produces a non-nil interface holding a nil
+	// pointer, so a later `cmd.Stdout == nil` check is false and exec writes
+	// through a nil file -- which fails silently and sends the agent's output
+	// nowhere. The agent still runs and its exit code still propagates, so the
+	// symptom is a program that appears to produce nothing.
+	if s.Stdin != nil {
+		cmd.Stdin = s.Stdin
+	}
+	if s.Stdout != nil {
+		cmd.Stdout = s.Stdout
+	} else {
 		cmd.Stdout = os.Stdout
 	}
-	if cmd.Stderr == nil {
+	if s.Stderr != nil {
+		cmd.Stderr = s.Stderr
+	} else {
 		cmd.Stderr = os.Stderr
 	}
 	// The control pipe becomes fd 3 in the child.
 	cmd.ExtraFiles = []*os.File{readPipe}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNET,
+		// CLONE_NEWNS as well as CLONE_NEWNET, so the child can point its
+		// resolver at the mediator without touching the host's /etc/resolv.conf.
+		Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWNS,
 		// The agent dies with the supervisor. A contained process outliving the
 		// thing recording it would be both unrecorded and unsupervised.
 		Pdeathsig: syscall.SIGKILL,
@@ -173,6 +213,7 @@ func Launch(s Spec) (*Handle, error) {
 		WorkDir:    s.WorkDir,
 		ReadPaths:  append(existingSystemPaths(), s.ReadPaths...),
 		WritePaths: s.WritePaths,
+		ResolvConf: s.ResolvConf,
 	}
 	if err := writeSpec(writePipe, cs); err != nil {
 		return abort(err)
@@ -182,7 +223,14 @@ func Launch(s Spec) (*Handle, error) {
 		return abort(err)
 	}
 
-	// Release the child only once the boundary exists.
+	if s.BeforeRelease != nil {
+		if err := s.BeforeRelease(net); err != nil {
+			return abort(fmt.Errorf("launcher: preparing the boundary: %w", err))
+		}
+	}
+
+	// Release the child only once the boundary exists and everything listening
+	// on it is ready.
 	if _, err := writePipe.Write([]byte{1}); err != nil {
 		return abort(fmt.Errorf("launcher: releasing the init child: %w", err))
 	}
@@ -252,6 +300,12 @@ func Init() error {
 		return fmt.Errorf("launcher: waiting for the boundary to be built: %w", err)
 	}
 
+	// Mounts happen before capabilities are dropped, because mount(2) needs
+	// CAP_SYS_ADMIN, and before seccomp, which denies it outright.
+	if err := applyMounts(spec.ResolvConf); err != nil {
+		return err
+	}
+
 	if spec.WorkDir != "" {
 		if err := os.Chdir(spec.WorkDir); err != nil {
 			return fmt.Errorf("launcher: entering %q: %w", spec.WorkDir, err)
@@ -285,9 +339,21 @@ func Init() error {
 		return err
 	}
 
-	rules := make([]FSRule, 0, len(spec.ReadPaths)+len(spec.WritePaths))
+	rules := make([]FSRule, 0, len(spec.ReadPaths)+len(spec.WritePaths)+1)
 	for _, p := range spec.ReadPaths {
 		rules = append(rules, FSRule{Path: p})
+	}
+	// The bind-mounted resolv.conf needs its own rule, granted on the mounted
+	// path rather than on either side of the mount.
+	//
+	// A Landlock rule covers a hierarchy, and a bind mount is its own mount
+	// point: the file is not beneath the rule on /etc, and it is no longer
+	// reached through the rule on the source directory either. Granting /etc and
+	// the source both looks sufficient and is not -- the agent gets EACCES on
+	// /etc/resolv.conf, every lookup fails, and the symptom is a run where
+	// nothing reaches the mediator at all.
+	if spec.ResolvConf != "" {
+		rules = append(rules, FSRule{Path: "/etc/resolv.conf"})
 	}
 	for _, p := range spec.WritePaths {
 		rules = append(rules, FSRule{Path: p, Write: true})
@@ -304,6 +370,26 @@ func Init() error {
 		env = os.Environ()
 	}
 	return syscall.Exec(binary, spec.Argv, env)
+}
+
+// applyMounts points the agent's resolver at the mediator.
+//
+// The child has its own mount namespace, but a namespace alone is not
+// isolation: mounts propagate back to the parent by default, so a bind mount
+// here would replace the *host's* /etc/resolv.conf. Marking the tree private
+// first is what confines it, and forgetting that line is the difference between
+// a contained change and breaking DNS for the whole machine.
+func applyMounts(resolvConf string) error {
+	if resolvConf == "" {
+		return nil
+	}
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("launcher: making the mount tree private: %w", err)
+	}
+	if err := unix.Mount(resolvConf, "/etc/resolv.conf", "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("launcher: pointing /etc/resolv.conf at the mediator: %w", err)
+	}
+	return nil
 }
 
 // IsInit reports whether this process is the re-executed child.

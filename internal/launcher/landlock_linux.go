@@ -187,6 +187,18 @@ func ApplyFilesystem(rules []FSRule) error {
 	return nil
 }
 
+// fileRights are the access rights that mean anything for a non-directory.
+//
+// The rest -- reading a directory, creating or removing entries in one,
+// reparenting -- are directory-only, and the kernel returns EINVAL for a rule
+// that names a regular file while requesting any of them. So the rights have to
+// be masked by what the path actually is.
+//
+// This is easy to miss because every path in a policy is normally a directory.
+// The first non-directory rule is what surfaces it, and the error says only
+// "invalid argument".
+const fileRights = uint64(fsExecute | fsWriteFile | fsReadFile | fsTruncate | fsIoctlDev)
+
 func addPathRule(rulesetFD int, path string, allowed uint64) error {
 	// O_PATH gets a handle for naming purposes only: it neither reads the file
 	// nor requires permission to. That matters because a rule may name a
@@ -196,6 +208,14 @@ func addPathRule(rulesetFD int, path string, allowed uint64) error {
 		return fmt.Errorf("landlock: opening %q for a rule: %w", path, err)
 	}
 	defer unix.Close(pathFD)
+
+	var st unix.Stat_t
+	if err := unix.Fstat(pathFD, &st); err != nil {
+		return fmt.Errorf("landlock: examining %q: %w", path, err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFDIR {
+		allowed &= fileRights
+	}
 
 	attr := pathBeneathAttr{
 		allowedAccess: allowed,

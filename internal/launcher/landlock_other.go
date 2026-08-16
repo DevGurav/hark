@@ -55,14 +55,16 @@ var SystemReadPaths []string
 
 // Spec describes one contained run.
 type Spec struct {
-	Argv       []string
-	Env        []string
-	WorkDir    string
-	ReadPaths  []string
-	WritePaths []string
-	Stdin      *os.File
-	Stdout     *os.File
-	Stderr     *os.File
+	Argv          []string
+	Env           []string
+	WorkDir       string
+	ReadPaths     []string
+	WritePaths    []string
+	Stdin         *os.File
+	Stdout        *os.File
+	Stderr        *os.File
+	ResolvConf    string
+	BeforeRelease func(n Network) error
 }
 
 // Network describes one boundary.
