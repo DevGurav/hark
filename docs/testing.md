@@ -10,7 +10,7 @@ go test ./... -bench=. -run='^$'
 Green means every test passes and `go vet ./...` is clean. There is no coverage threshold; coverage
 percentage is a poor proxy for whether the properties that matter are pinned down.
 
-Current state: 124 tests, 174 including subtests, across 10 packages, plus three fuzz targets.
+Current state: 134 tests, 184 including subtests, across 11 packages, plus three fuzz targets.
 The launcher's Linux-only tests are additional and run separately, below.
 
 The launcher's tests need root and a Linux kernel. They skip otherwise, so the suite still runs
@@ -166,3 +166,18 @@ iteration and a single construction would not exercise the ordering at all.
 do not collide. Placeholders from two different run ids must canonicalise together while a
 placeholder and a literal value must not. JSON key order must not matter, array order must, and large
 integers must survive unrewritten.
+
+**`internal/replay` — reassembly, and refusing to guess.**
+`TestInterleavedExchangesAreSeparated` builds the event shape two concurrent connections actually
+produce — both requests, then chunks alternating, then both ends out of order — and checks each
+response is reassembled onto the right request. That case is the entire reason exchange ids exist,
+and grouping by position would pass every other test while failing this one.
+
+`TestRetriesAreServedInOrder` covers the 429-then-success pair: byte-identical requests, different
+answers, served in sequence. `TestUnknownRequestFails` and `TestUnterminatedExchangeIsNotServed`
+pin the refusals — a replayer that serves a near-miss or half a response can report success while
+the agent saw something it never did.
+
+The mediator's playback tests cover the plumbing rather than the matching: no outbound dial (proved
+with a dialer that always fails), chunk boundaries preserved, and the replayed run recording its own
+correlated events so its bundle is itself replayable.

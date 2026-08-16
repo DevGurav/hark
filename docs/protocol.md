@@ -152,6 +152,19 @@ namespace's only resolver, so a name lookup is a policy decision point and an ev
 and it names the destination before any TCP connection exists — see
 [ADR-0006](decisions/0006-mediated-dns-and-sni-host-identification.md).
 
+## Exchange correlation
+
+`LlmRequest`, `LlmResponseChunk` and `LlmResponseEnd` each carry an `Exchange` number, and every
+event of one request/response pair shares it.
+
+The log has a total order over boundary crossings, not over whole exchanges — concurrent connections
+interleave. A reader collecting chunks until the next end marker would therefore splice one
+response onto another's request, and replay would serve the result without noticing. Grouping by
+correlation id is the only correct way to reassemble a run with any concurrency in it.
+
+An exchange with no end marker was killed part-way through and is not replayable; a reader should
+leave it unindexed rather than serve a partial response.
+
 ## Payload encoding
 
 CBOR Core Deterministic Encoding (RFC 8949 §4.2.1): shortest-form integers, definite-length

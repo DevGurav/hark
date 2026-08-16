@@ -79,20 +79,20 @@ One run can issue byte-identical requests that received different responses — 
 the obvious case, and UrbanHeat's `llm.py` does exactly this.
 
 - [x] Key on `(canonical_hash, occurrence)`, where occurrence counts prior identical requests.
-- [ ] On replay, match by key; fall back to strict sequence position.
-- [ ] When neither matches, emit a `KeyMismatch` diagnostic and **stop**. Do not guess. A replayer
-      that silently serves the wrong response is worse than one that refuses.
+- [x] On replay, match by key. Position fallback deliberately dropped: guessing is the failure mode
+      that makes replay untrustworthy, so a miss is fatal to the run.
+- [x] When it does not match, record the divergence and **stop**. Do not guess.
 
 **Acceptance.** A test records two identical requests with different responses and confirms replay
 returns each in the right order.
 
 ### 3. Playback mode
 
-- [ ] The mediator serves from the bundle instead of dialling upstream.
-- [ ] Reproduce chunk boundaries exactly — agent code branches on partial parses, so the boundaries
+- [x] The mediator serves from the bundle instead of dialling upstream — no outbound connection at
+      all, verified with a dialer that fails unconditionally.
+- [x] Reproduce chunk boundaries exactly — agent code branches on partial parses, so the boundaries
       are themselves a source of nondeterminism.
-- [ ] Do **not** reproduce inter-chunk timing by default. Sleeping through a recorded four-minute run
-      defeats the point of replay being fast. Put it behind `-realtime` for anyone who wants it.
+- [x] Do **not** reproduce inter-chunk timing by default. (`-realtime` not implemented; no user yet.)
 - [ ] Replay every recorded egress denial as a denial.
 
 **Acceptance.** A replayed run makes zero outbound connections. Verify with `tcpdump` on the host end
