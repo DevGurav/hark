@@ -54,6 +54,10 @@ Stated here rather than discovered by a reader.
   DROP rules are not, so a supervisor killed with SIGKILL leaves two behind. They are inert — nothing
   matches a device that no longer exists — but they accumulate, so each run prunes stale ones naming
   a missing `hk`-prefixed interface before it starts.
+- **The shim is advisory, the mediator is not.** Clock and RNG capture runs inside the agent's own
+  process, so the agent can remove it from `PYTHONPATH` or call the syscalls directly. Network
+  fidelity is enforced by the kernel; clock and RNG fidelity are best-effort, and a replay whose
+  agent bypassed the shim will diverge rather than silently succeed.
 - **Cert-pinning agents.** An agent that pins certificates will refuse the mediator's CA. Its traffic
   cannot be recorded; the in-process shim is the workaround. Not solved.
 - **Encrypted ClientHello.** ECH would hide the SNI the mediator relies on to name the destination.

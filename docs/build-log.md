@@ -4,6 +4,56 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — playback, and the in-process shim
+
+**A structural flaw, found before it could bite.** The log has a total order over boundary
+*crossings*, not over whole exchanges. Two concurrent connections interleave their events, so a
+reader collecting chunks until the next end marker splices one response onto another's request — and
+replay would serve that without noticing. Every LLM event now carries an exchange correlation id.
+`TestInterleavedExchangesAreSeparated` builds exactly that shape; grouping by position passes every
+other test and fails only this one.
+
+**Refusing to guess, deliberately.** The W3 spec said to fall back to strict sequence position when a
+key does not match. That is dropped rather than done. Falling back *is* guessing, and a replayer that
+guesses can report success while the agent saw an answer it never received — which would make every
+replay result untrustworthy. A miss now fails the run and names the request. The same applies to a
+half-recorded exchange: left unindexed rather than served as a partial answer.
+
+**A replayed run opens no outbound connection at all.** No side effects, no cost, no dependence on
+the endpoint being up. The test proves it with a dialer that fails unconditionally, so falling
+through to the live path fails rather than quietly succeeding against a real service.
+
+**Body framing is normalised on replay**, and finding out why cost a debugging round. Replaying an
+SSE stream's headers verbatim while writing the body raw leaves the client with no way to know where
+the response ends — it reads until close, which never comes, because the mediator is waiting for the
+next request on the same connection. Length-delimiting fixes it, and the chunk arrival boundaries
+that actually matter for fidelity survive either way.
+
+**The shim, and a Python trap worth knowing.** `site.py` wraps `sitecustomize` in `except Exception`.
+An ordinary exception there is reduced to a one-line "Error in sitecustomize" warning and the
+interpreter carries on *unpatched* — producing a recording that looks complete and can never replay.
+Exactly the silent failure the shim exists to prevent. Everything now exits through `sys.exit`, whose
+`SystemExit` derives from `BaseException` and passes straight through that handler.
+
+Randomness is captured per draw rather than by re-seeding. Re-seeding is far cheaper and does not
+work: the agent can build its own `random.Random` instances, and any library it imports may consume
+draws in numbers that change between versions. Also `randint`, `choice` and `shuffle` are bound
+methods of a hidden instance, so patching `random.random` alone leaves them on the unpatched
+generator.
+
+**A test-harness trap.** `exec.LookPath("python")` succeeds on Windows even with no Python installed:
+the Microsoft Store ships an app execution alias, a real `python.exe` that resolves and then prints
+an advertisement. The helper now probes the interpreter rather than trusting the path.
+
+**Verified.** 134 tests, 184 with subtests, across 11 packages; build, vet, gofmt clean. **Not
+verified:** the shim's Python side has never been executed — its tests are Linux-only and the box was
+stopped. That is the first thing to run next session.
+
+**Next.** `hark replay`: wire the playback source and the shim's replay mode together, recompute the
+root, and report REPLAY-EQUAL or the first divergent event.
+
+---
+
 ## 2026-08-16 — W3 begins: request identity
 
 Canonicalisation, the task the spec flagged as most likely to overrun. Written off-VM, since none of

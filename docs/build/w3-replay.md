@@ -100,15 +100,17 @@ of the veth, not by trusting the code.
 
 ### 4. Language shim
 
-- [ ] `sitecustomize.py` injected via `PYTHONPATH`, patching `time.time`, `time.monotonic`,
-      `random.*`, `uuid.uuid4`, `os.urandom`.
-- [ ] Set `PYTHONHASHSEED=0`.
-- [ ] Record mode appends `ClockRead` and `RandomRead`; replay mode serves them back in order.
-- [ ] Communicate with the supervisor over a unix socket bound into the namespace — not a file in the
-      workspace, which the agent could tamper with.
+- [x] `sitecustomize.py` injected via `PYTHONPATH`, patching `time.time`, `time.monotonic`, the
+      `_ns` variants, `random.*`, `uuid.uuid4`, `os.urandom`. **Written, not yet run against a real
+      interpreter** — needs the VM.
+- [x] Set `PYTHONHASHSEED=0`.
+- [x] Record mode appends `ClockRead` and `RandomRead`; replay mode serves them back in order.
+- [x] Communicate with the supervisor over a unix socket in the run directory — not the workspace,
+      which the agent can write to.
 
 **Acceptance.** A script printing `time.time()` and `random.random()` produces identical output on
-replay.
+replay. Test written (`TestRecordThenReplayReproducesOutput`); **not yet executed** — it needs a
+Linux interpreter, and the box was stopped.
 
 ### 5. `hark replay`
 
