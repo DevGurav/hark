@@ -4,6 +4,44 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — W3 begins: request identity
+
+Canonicalisation, the task the spec flagged as most likely to overrun. Written off-VM, since none of
+it needs a kernel.
+
+**The asymmetry that shapes the whole package.** A key that is too loose makes two different requests
+collide, and replay then serves the wrong response *and reports success*. Too tight, and a request
+that is logically the same fails to match — which refuses a run that should have worked, but does so
+loudly. The second is recoverable, the first is not, so everything errs toward distinguishing.
+
+**Placeholders are normalised, not stripped.** A correction to the plan, which assumed the recorded
+request holds a placeholder and the live one holds the real credential. Both hold placeholders: the
+broker injects on a copy, so canonicalisation only ever sees the agent's original. The real problem
+is that a placeholder embeds the run id, so a replayed run emits a different literal for the same
+logical request. Normalising to a sentinel fixes that; stripping the header would have thrown away a
+genuine distinction between two different secrets.
+
+**Length prefixing, for a reason worth stating.** Without it the header pair `a: bc` and the pair
+`ab: c` concatenate to identical bytes, and two different requests share a key. That is precisely the
+silent failure above, so there is a test for it rather than a comment.
+
+**Numbers keep their text.** Decoding JSON into `float64` rewrites `1` as `1e+00` and loses precision
+above 2^53. Using `json.Number` keeps the original literal, so canonicalisation does not quietly
+rewrite the body of a request nobody asked it to touch. Key order is normalised because Python does
+not sort dict keys; array order is not, because a message list is an array.
+
+**The mediator now keys through the same package.** It had a placeholder implementation hashing only
+method, host, path and body. Two definitions of "the same request" would drift, and the way that
+surfaces is replay matching the wrong response. Headers now participate, with the volatile ones
+dropped — so a retry carrying a fresh `X-Request-Id` still keys to the call it repeats, which has its
+own test because getting it wrong would mean retried requests never replay.
+
+**Verified.** 15 tests in the new package, full suite green across ten packages, fuzzing clean.
+
+**Next.** Mediator playback mode, then the Python shim for clock and RNG, then `hark replay`.
+
+---
+
 ## 2026-08-16 — W2 closes: `hark run`, and three bugs only running it could find
 
 The acceptance criterion is met. A `curl`-driven agent, with `HTTPS_PROXY`, `https_proxy` and

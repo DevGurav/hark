@@ -52,26 +52,33 @@ func Run(ctx context.Context, bundlePath string, out string) (*Outcome, error)
 Budget **two full days** for this. It is the task most likely to overrun, and the estimate is not
 padding.
 
-- [ ] Strip hop-by-hop and connection-specific headers: `Connection`, `Keep-Alive`,
+- [x] Strip hop-by-hop and connection-specific headers: `Connection`, `Keep-Alive`,
       `Proxy-Authenticate`, `Proxy-Authorization`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`.
-- [ ] Strip headers that vary per request by nature: `Date`, `User-Agent` version suffixes,
+- [x] Strip headers that vary per request by nature: `Date`, `User-Agent` version suffixes,
       `X-Request-Id`, tracing headers.
-- [ ] Strip the injected credential — the recorded request has the placeholder, the live one has the
+- [x] Strip the injected credential — the recorded request has the placeholder, the live one has the
       real value, and they must canonicalise identically.
-- [ ] Lowercase header names, sort them, and join deterministically with length prefixes so
+- [x] Lowercase header names, sort them, and join deterministically with length prefixes so
       `A: bc` and `Ab: c` cannot collide.
-- [ ] For JSON bodies, re-serialise canonically: sorted keys, shortest float representation. For
+- [x] For JSON bodies, re-serialise canonically: sorted keys, shortest float representation. For
       anything else, hash the bytes.
 
 **Acceptance.** Property test: the same logical request canonicalises identically across 1,000
-constructions with randomised header order and randomised map iteration.
+constructions with randomised header order and randomised map iteration. **Done** —
+`internal/reqkey`, and the mediator now derives recorded keys through it so recording and replay
+cannot drift apart.
+
+One correction to the plan above: the credential is *normalised*, not stripped. Both sides hold a
+placeholder — the recorded request because the broker injects on a copy, the replayed one because the
+agent's environment works the same way — but a placeholder embeds the run id, so the literal strings
+differ. Stripping the header would also throw away a real distinction between two different secrets.
 
 ### 2. Occurrence ordinals
 
 One run can issue byte-identical requests that received different responses — a retry after a 429 is
 the obvious case, and UrbanHeat's `llm.py` does exactly this.
 
-- [ ] Key on `(canonical_hash, occurrence)`, where occurrence counts prior identical requests.
+- [x] Key on `(canonical_hash, occurrence)`, where occurrence counts prior identical requests.
 - [ ] On replay, match by key; fall back to strict sequence position.
 - [ ] When neither matches, emit a `KeyMismatch` diagnostic and **stop**. Do not guess. A replayer
       that silently serves the wrong response is worse than one that refuses.

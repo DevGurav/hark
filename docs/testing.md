@@ -153,3 +153,15 @@ The denial path is covered for each way a connection can fail to name a host it 
 a disallowed SNI, no SNI at all, and traffic that is not TLS. Each must be recorded rather than
 merely refused, and `TestAttemptIsRecordedBeforeDecision` pins the ordering that makes an attempt
 survive a crash between the two.
+
+**`internal/reqkey` — the silent failure is the one to guard against.**
+A key that is too loose makes two different requests collide, so replay serves the wrong response and
+reports success. Too tight and a logically identical request fails to match, which at least fails
+loudly. The tests are weighted accordingly: most assert that things stay *distinguishable*.
+
+`TestCanonicalisationIsStable` builds the same header map a thousand times, because Go randomises map
+iteration and a single construction would not exercise the ordering at all.
+`TestHeaderBoundariesAreUnambiguous` pins the length prefixing by checking that `a: bc` and `ab: c`
+do not collide. Placeholders from two different run ids must canonicalise together while a
+placeholder and a literal value must not. JSON key order must not matter, array order must, and large
+integers must survive unrewritten.
