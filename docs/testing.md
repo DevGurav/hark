@@ -10,7 +10,8 @@ go test ./... -bench=. -run='^$'
 Green means every test passes and `go vet ./...` is clean. There is no coverage threshold; coverage
 percentage is a poor proxy for whether the properties that matter are pinned down.
 
-Current state: 109 tests, 156 including subtests, across 9 packages, plus two fuzz targets.
+Current state: 124 tests, 174 including subtests, across 10 packages, plus three fuzz targets.
+The launcher's Linux-only tests are additional and run separately, below.
 
 The launcher's tests need root and a Linux kernel. They skip otherwise, so the suite still runs
 unprivileged and on a non-Linux machine:
