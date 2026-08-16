@@ -67,6 +67,14 @@ type LLMRequest struct {
 	RequestKey []byte            `cbor:"6,keyasint"` // canonical hash used to match on replay
 	Occurrence uint32            `cbor:"7,keyasint"` // nth identical request in this run
 	Streaming  bool              `cbor:"8,keyasint"`
+
+	// Exchange ties this request to its response events.
+	//
+	// Concurrent connections interleave in the log -- the mediator gives the log
+	// a total order over crossings, not one whole exchange at a time -- so
+	// "collect chunks until the next end marker" would splice two responses
+	// together. Every event of one request/response pair carries the same number.
+	Exchange uint64 `cbor:"9,keyasint"`
 }
 
 // LLMResponseChunk is one piece of a response as it was received, with the delay
@@ -77,6 +85,7 @@ type LLMResponseChunk struct {
 	Seq       uint32 `cbor:"1,keyasint"`
 	Data      []byte `cbor:"2,keyasint"`
 	SincePrev int64  `cbor:"3,keyasint"` // nanoseconds
+	Exchange  uint64 `cbor:"4,keyasint"`
 }
 
 // LLMResponseEnd closes a response and carries its terminal status.
@@ -85,6 +94,7 @@ type LLMResponseEnd struct {
 	Headers    map[string]string `cbor:"2,keyasint"`
 	ChunkCount uint32            `cbor:"3,keyasint"`
 	Error      string            `cbor:"4,keyasint"` // transport-level failure, if any
+	Exchange   uint64            `cbor:"5,keyasint"`
 }
 
 // ToolCallRequest and ToolCallResult cover MCP and any other JSON-RPC tool
