@@ -130,6 +130,26 @@ func summarise(f *logfmt.Frame) string {
 			}
 			return fmt.Sprintf("%s/%s -> %d bytes", v.Server, v.Tool, len(v.Result))
 		}
+	case logfmt.KindDNSQuery:
+		var v logfmt.DNSQuery
+		if logfmt.Unmarshal(f.Payload, &v) == nil {
+			if v.Name == "" {
+				return v.Type
+			}
+			return fmt.Sprintf("%s %s", v.Type, v.Name)
+		}
+	case logfmt.KindDNSDecision:
+		var v logfmt.DNSDecision
+		if logfmt.Unmarshal(f.Payload, &v) == nil {
+			verdict := "policy: DENIED"
+			if v.Allowed {
+				verdict = "policy: allowed"
+			}
+			if v.Answer != "" {
+				return fmt.Sprintf("%s -> %s (%s)", v.Name, v.Answer, verdict)
+			}
+			return fmt.Sprintf("%s (%s) %s", v.Name, verdict, v.Reason)
+		}
 	case logfmt.KindEgressAttempt:
 		var v logfmt.EgressAttempt
 		if logfmt.Unmarshal(f.Payload, &v) == nil {

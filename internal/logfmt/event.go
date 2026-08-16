@@ -104,6 +104,32 @@ type ToolCallResult struct {
 	IsError bool   `cbor:"4,keyasint"`
 }
 
+// DNSQuery records a name lookup. Written before the decision, for the same
+// reason EgressAttempt is: the attempt survives a crash between the two.
+//
+// This is the earliest point at which a destination can be attributed. An agent
+// that ignores every proxy convention still has to resolve a name, and the only
+// resolver it can reach is the mediator.
+type DNSQuery struct {
+	Name  string `cbor:"1,keyasint"`
+	Type  string `cbor:"2,keyasint"` // "A", "AAAA", or "TYPE<n>"
+	RawTy uint16 `cbor:"3,keyasint"`
+}
+
+// DNSDecision is the verdict and the answer given.
+//
+// Allowed reflects what the policy says about the name. The answer is the
+// mediator's own address either way -- refusing at the DNS layer would stop the
+// agent connecting, and with it the chance to record a proper egress attempt
+// carrying the host. See ADR-0006.
+type DNSDecision struct {
+	Name    string `cbor:"1,keyasint"`
+	Allowed bool   `cbor:"2,keyasint"`
+	Rule    string `cbor:"3,keyasint"`
+	Answer  string `cbor:"4,keyasint"`
+	Reason  string `cbor:"5,keyasint"`
+}
+
 // EgressAttempt records a connection the agent tried to open. It is written
 // before the policy decision, so an attempt is on the record even if the process
 // dies between attempt and decision.

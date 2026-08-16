@@ -39,6 +39,14 @@ const (
 	// Checkpoint and termination.
 	KindCheckpoint Kind = 15
 	KindRunEnd     Kind = 16
+
+	// Name resolution. The mediator is the namespace's only resolver, so a
+	// lookup is a policy decision point in its own right and is recorded as one
+	// -- mirroring the EgressAttempt/EgressDecision pair. It also names the
+	// destination before any TCP connection exists, which is the earliest point
+	// at which an attempt can be attributed. See ADR-0006.
+	KindDNSQuery    Kind = 17
+	KindDNSDecision Kind = 18
 )
 
 var kindNames = map[Kind]string{
@@ -58,6 +66,8 @@ var kindNames = map[Kind]string{
 	KindRandomRead:       "RandomRead",
 	KindCheckpoint:       "Checkpoint",
 	KindRunEnd:           "RunEnd",
+	KindDNSQuery:         "DnsQuery",
+	KindDNSDecision:      "DnsDecision",
 }
 
 func (k Kind) String() string {
