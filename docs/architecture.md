@@ -8,8 +8,9 @@
 │  MMR builder · Rekor client                                 │
 │                                                             │
 │  ┌─ Zone 1: mediator (same trust, separate task) ────────┐  │
-│  │  TLS terminator · HTTP/SSE recorder · MCP JSON-RPC    │  │
-│  │  router · egress policy · credential injector         │  │
+│  │  DNS resolver (:53) · TLS terminator + SNI (:443)     │  │
+│  │  HTTP/SSE recorder · MCP JSON-RPC router              │  │
+│  │  egress policy · credential injector                  │  │
 │  └───────────────────────────────────────────────────────┘  │
 └──────────────────────────┬──────────────────────────────────┘
                       veth │  the trust boundary.
@@ -49,16 +50,39 @@ Dependencies run strictly downward: `bundle` → `{logfmt, mmr, signer}` → `ha
 
 ### Not yet built
 
-`internal/launcher` (netns, Landlock, seccomp), `internal/mediator` (TLS termination, recording,
-egress policy), `internal/broker` (secrets), `internal/replay` (playback and request keying), and the
-Python `sitecustomize` shim. See [roadmap.md](roadmap.md).
+`internal/launcher` (netns, Landlock, seccomp), `internal/mediator` (DNS, TLS termination, SNI,
+recording, egress policy), `internal/broker` (secrets), `internal/replay` (playback and request
+keying), and the Python `sitecustomize` shim. See [roadmap.md](roadmap.md).
+
+## How the agent's destination is learned
+
+The mediator is the namespace's only resolver and the only reachable address. It therefore observes
+the intended destination twice, before any traffic leaves:
+
+1. **The DNS query.** `/etc/netns/<ns>/resolv.conf` points at the mediator, which answers every A
+   query with its own address. This closes DNS as an exfiltration channel and names the destination
+   before a TCP connection exists.
+2. **The TLS SNI.** Because every name resolves to the mediator, the agent connects to it for any
+   host, and the ClientHello carries the hostname it believes it is talking to.
+
+This matters because it holds for an agent that ignores every proxy convention. Proxy environment
+variables are a convenience for well-behaved clients; the routing table and the resolver are the
+controls. Verified in W0 — see
+[ADR-0006](decisions/0006-mediated-dns-and-sni-host-identification.md) for the reasoning, the
+limitations, and why `SO_ORIGINAL_DST` cannot be used here.
 
 ## Recording flow
 
 ```text
 agent process                mediator                    supervisor
      │                          │                             │
+     ├── DNS: evil.example ────►│  (the only resolver there is)
+     │                          ├── DnsQuery ────────────────►│ append
+     │                          ├── DnsDecision ─────────────►│ append
+     │◄── A 10.200.1.1 ─────────┤  every name resolves here
+     │                          │                             │
      ├── connect ──────────────►│                             │
+     │      (SNI names the intended host, even with no proxy configured)
      │                          ├── EgressAttempt ───────────►│ append
      │                          ├── policy check              │
      │                          ├── EgressDecision ──────────►│ append + fsync

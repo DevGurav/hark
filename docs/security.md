@@ -28,7 +28,9 @@ the sender.
 | --- | --- | --- |
 | A1 exfiltrates a credential | Broker: the agent's environment holds `hark-placeholder-<runid>`; real values are injected at the boundary, after Zone 2 | W2 |
 | A1 reaches a disallowed host | Network namespace with no route except the veth; allowlist evaluated in the mediator | W2 |
-| A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code | W2 |
+| A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code. The intended host is recovered from the TLS SNI, so the attempt is recorded rather than silently dropped | W2 |
+| A1 exfiltrates over DNS | The mediator is the namespace's only resolver; every lookup is a recorded, policy-checked event and every A answer points back at the mediator | W2 |
+| A1 dials a literal IP to skip DNS | Still has nowhere to route except the mediator; recorded as an attempt with an empty host rather than allowed by default | W2 |
 | A1 reads files outside its workspace | Landlock filesystem scoping | W2 |
 | A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | W2 |
 | A1 edits or deletes its own audit log | The log lives in Zone 0; no Landlock rule grants a path to it | W2 |
@@ -44,6 +46,16 @@ Stated here rather than discovered by a reader.
 
 - **Cert-pinning agents.** An agent that pins certificates will refuse the mediator's CA. Its traffic
   cannot be recorded; the in-process shim is the workaround. Not solved.
+- **Encrypted ClientHello.** ECH would hide the SNI the mediator relies on to name the destination.
+  Not a concern for the endpoints in scope today, and the preceding DNS query still names the host,
+  but the SNI path would degrade. Revisit if ECH becomes common.
+- **Non-TLS traffic.** Plain HTTP carries no SNI, so the destination comes from the `Host` header
+  instead. A raw TCP connection to an address the agent resolved earlier can only be attributed
+  through the recorded DNS query that preceded it.
+- **DNS answers are deliberately false.** Every A record points at the mediator. Anything validating
+  answers independently — DNSSEC, or a client comparing the resolved address against a pinned value
+  — will detect this. Same visibility class as the TLS interception, and disclosed for the same
+  reason.
 - **Per-read filesystem determinism.** `FsManifest` hashes the granted read-set at `RunStart`. `hark`
   asserts the readable files had those contents when the run began, not that each read returned
   particular bytes. Per-read interception requires FUSE or an eBPF LSM.
