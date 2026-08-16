@@ -29,14 +29,21 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	if os.Getenv("HARK_LANDLOCK_HELPER") == "1" {
-		helperMain()
+	switch os.Getenv("HARK_HELPER") {
+	case "landlock":
+		landlockHelper()
+		return
+	case "seccomp":
+		seccompHelper()
+		return
+	case "caps":
+		capsHelper()
 		return
 	}
 	os.Exit(m.Run())
 }
 
-func helperMain() {
+func landlockHelper() {
 	// Required: the domain is installed on this thread and execve or the
 	// subsequent syscalls must happen on it too.
 	runtime.LockOSThread()
@@ -85,7 +92,7 @@ func run(t *testing.T, ro, rw []string, op, target string) int {
 
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(),
-		"HARK_LANDLOCK_HELPER=1",
+		"HARK_HELPER=landlock",
 		"HARK_RO="+strings.Join(ro, string(filepath.ListSeparator)),
 		"HARK_RW="+strings.Join(rw, string(filepath.ListSeparator)),
 		"HARK_OP="+op,

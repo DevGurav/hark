@@ -26,8 +26,20 @@ type FSRule struct {
 	Write bool
 }
 
+// ErrUnsupported means this containment primitive needs Linux.
+var ErrUnsupported = errors.New("launcher: containment requires Linux")
+
 // ABI reports the Landlock ABI version. Always unavailable off Linux.
 func ABI() (int, error) { return 0, ErrLandlockUnavailable }
 
 // ApplyFilesystem always fails off Linux.
 func ApplyFilesystem([]FSRule) error { return ErrLandlockUnavailable }
+
+// ApplySeccomp always fails off Linux.
+func ApplySeccomp() error { return ErrUnsupported }
+
+// DropCapabilities always fails off Linux.
+func DropCapabilities() error { return ErrUnsupported }
+
+// HasCapabilities always fails off Linux.
+func HasCapabilities() (bool, error) { return false, ErrUnsupported }
