@@ -4,6 +4,57 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — seccomp, capabilities, and the DNS message layer
+
+**Seccomp.** Hand-assembled classic BPF rather than libseccomp, which would drag cgo and a system
+library onto every build host for a filter of about thirty instructions.
+
+The architecture check earns its place. On x86_64 a process can issue 32-bit syscalls where the
+numbers mean different things, so a filter matching numbers without pinning the ABI can be sidestepped
+by calling through the other one. That case is killed rather than refused, because it cannot be an
+accident.
+
+Denials return EPERM rather than killing the process. The call is refused either way, but an error the
+runtime can surface beats a process that vanishes and leaves whoever is debugging it with nothing.
+
+Most of what the filter denies also needs a capability the child will not hold, so it is genuinely
+defence in depth. The exceptions justify it on their own: `ptrace` and `process_vm_readv` work between
+processes of the same user with no capability at all.
+
+**Capabilities.** The order is fixed and not obvious. Dropping the bounding set needs `CAP_SETPCAP`, so
+it must happen while capabilities are still held — clearing the permitted set first would strand the
+bounding set populated with nothing left able to empty it, and a populated bounding set is exactly what
+lets a setuid binary hand capabilities back across execve. Ambient goes first, since that is the set
+designed to survive exec.
+
+`cap_last_cap` comes from `/proc` rather than a constant. The list grows between releases, and a value
+compiled in today would silently stop dropping the newest capabilities on a newer kernel — the ones
+least likely to be audited.
+
+**DNS message layer.** Written off-VM, since wire-format parsing needs no kernel.
+
+The decision worth recording: non-A queries get NOERROR with an empty answer section, never NXDOMAIN.
+NOERROR says the name exists but has no record of that type, so the client falls back to A and reaches
+the mediator. NXDOMAIN would convince it the name does not exist at all and it would give up without
+connecting — losing the connection *and* the SNI observation that ADR-0006 depends on.
+
+Compression-pointer following is bounded at sixteen jumps, with a test that fails on non-termination
+rather than trusting the bound. A name pointing at itself is the standard way to hang a resolver, and
+hanging here would stall the run being recorded.
+
+**Testing.** Both new pieces are checked against real implementations rather than fixtures. The
+seccomp and capability work runs in helper subprocesses and measures whether the kernel actually
+refused. The DNS layer is driven by Go's own `net.Resolver` over loopback UDP, which also exercises
+the AAAA-fallback path for free — the resolver asks for AAAA, gets an empty NOERROR, retries with A.
+
+**Verified.** 17 launcher tests green on the box; full suite green on both machines; DNS fuzzing 1.6M
+executions clean.
+
+**Next.** The netns/veth setup and the re-exec init child that ties Landlock, seccomp and the
+capability drop together. Needs the VM.
+
+---
+
 ## 2026-08-16 — Landlock, against the real kernel
 
 First session working directly against the VM rather than writing code to be tested later. Edits
