@@ -43,14 +43,19 @@ Three invariants fall out of this layout, and they are the ones to preserve when
 | `internal/signer` | Ed25519 signed tree heads over `(runID, leafCount, root, signedAt)`. |
 | `internal/bundle` | `.hark` reader and writer, and the end-to-end verifier. |
 | `internal/runid` | ULID generation. |
+| `internal/policy` | The run allowlist. Exact matches only. |
+| `internal/launcher` | Namespace, veth, Landlock, seccomp, capability drop, and the re-executed init child that applies them. |
+| `internal/mediator` | DNS resolver, TLS termination, SNI, egress policy, forwarding, playback. |
+| `internal/broker` | Placeholder credentials, substituted at the boundary. |
+| `internal/reqkey` | Canonical request identity, so a replayed request finds its recorded response. |
+| `internal/replay` | Indexes a recording for playback, and reduces a run to its comparable actions. |
+| `internal/shim` | The supervisor's side of the in-process clock and RNG capture channel. |
+| `shim/` | The Python side, injected via `PYTHONPATH`. |
 | `cmd/hark` | CLI. |
 
 Dependencies run strictly downward: `bundle` → `{logfmt, mmr, signer}` → `hashchain`. No cycles, and
-`hashchain` imports nothing from the project.
-
-| `internal/policy` | The run allowlist. Exact matches only. |
-| `internal/launcher` | Namespace, veth, Landlock, seccomp, capability drop, and the re-executed init child that applies them. |
-| `internal/broker` | Placeholder credentials, substituted at the boundary. |
+`hashchain` imports nothing from the project. The mediator depends on `replay` only through an
+interface, so the recording path does not pull in the bundle reader.
 
 ### How the agent is started
 
@@ -67,8 +72,7 @@ and dropping first is both the safer default and a hard requirement — the capa
 
 ### Not yet built
 
-`internal/mediator` still needs its listeners (DNS socket, TLS termination, egress recording);
-`internal/replay` (playback and request keying) and the Python `sitecustomize` shim are W3. See
+`hark fork`, the static HTML trace report, and Rekor anchoring — all W4. See
 [roadmap.md](roadmap.md).
 
 ## How the agent's destination is learned
@@ -126,8 +130,8 @@ them in the recorded order. This is an RPC-layer analogue of `rr`'s serialised s
 fraction of the cost.
 
 What this does **not** capture is two threads racing on an in-process dictionary. That is stated
-rather than papered over: if replay diverges, the chain root differs and the replayer reports the
-first divergent event instead of claiming success. A tool that says "I could not reproduce this,
+rather than papered over: if replay diverges, the action digest differs and the replayer names the
+first divergent action instead of claiming success. A tool that says "I could not reproduce this,
 here is where it diverged" is more trustworthy than one that always says OK.
 
 ## What replay compares
