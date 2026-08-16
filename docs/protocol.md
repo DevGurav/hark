@@ -140,12 +140,11 @@ not pass.
 | 6 | LlmResponseChunk | 14 | RandomRead |
 | 7 | LlmResponseEnd | 15 | Checkpoint |
 | 8 | ToolCallRequest | 16 | RunEnd |
+| 17 | DnsQuery | 18 | DnsDecision |
 
 Numbers are never reused or renumbered. An unknown kind does not prevent verification — a leaf hash
 covers opaque payload bytes and never needs them decoded — but replay must refuse to proceed past a
 kind it cannot interpret rather than silently skipping it.
-
-| 17 | DnsQuery | 18 | DnsDecision |
 
 `DnsQuery` and `DnsDecision` mirror the `EgressAttempt`/`EgressDecision` pair. The mediator is the
 namespace's only resolver, so a name lookup is a policy decision point and an event in its own right,
