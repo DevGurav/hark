@@ -1,0 +1,200 @@
+"""In-process capture of the nondeterminism the network boundary cannot see.
+
+The mediator records everything the agent sends or receives, but a clock read and
+a random draw never cross it. Both change what an agent does -- a timestamp in a
+prompt, a request id, a sampled choice -- so replay needs them too.
+
+Python imports ``sitecustomize`` automatically at interpreter startup if it is on
+``PYTHONPATH``, before any user code runs. That is early enough to patch the
+functions before the agent can hold a reference to the originals.
+
+Two things this is honest about:
+
+* It is **advisory**. The agent could delete this from its ``PYTHONPATH`` or call
+  the underlying syscalls directly. Network fidelity is enforced by the kernel;
+  clock and RNG fidelity are best-effort. ``docs/security.md`` says so.
+* It costs a socket round trip per call. Fine for an agent making a handful of
+  draws, not for one in a tight loop. Recorded as a known limit rather than
+  hidden.
+
+Failure is loud on purpose. A shim that cannot reach the supervisor and carries
+on would produce a recording that looks complete and can never replay, which is
+the kind of failure nobody notices until they need the artifact.
+"""
+
+import json
+import os
+import socket
+import sys
+
+_SOCKET = os.environ.get("HARK_SHIM_SOCKET")
+_MODE = os.environ.get("HARK_SHIM_MODE")  # "record" or "replay"
+
+
+def _fail(message):
+    sys.stderr.write("hark shim: %s\n" % message)
+    # 126 matches what the launcher uses for "the containment could not be set
+    # up", because that is what this is.
+    #
+    # sys.exit raises SystemExit, which derives from BaseException. That matters:
+    # site.py wraps sitecustomize in `except Exception`, so an ordinary exception
+    # here is caught, reduced to a one-line "Error in sitecustomize" warning, and
+    # the interpreter carries on unpatched. SystemExit passes straight through.
+    sys.exit(126)
+
+
+class _Channel:
+    """One request/response at a time over a unix socket.
+
+    Newline-delimited JSON rather than a binary framing: this is a low-volume
+    control channel, and being able to read it with ``socat`` while debugging is
+    worth more than the bytes.
+    """
+
+    def __init__(self, path):
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            self._sock.connect(path)
+        except OSError as exc:
+            _fail("cannot reach the supervisor at %s: %s" % (path, exc))
+        self._file = self._sock.makefile("rwb")
+
+    def call(self, op, src, val=None):
+        msg = {"op": op, "src": src}
+        if val is not None:
+            msg["val"] = val
+        try:
+            self._file.write((json.dumps(msg) + "\n").encode())
+            self._file.flush()
+            line = self._file.readline()
+        except OSError as exc:
+            _fail("lost the supervisor connection: %s" % exc)
+        if not line:
+            _fail("the supervisor closed the connection")
+
+        reply = json.loads(line)
+        if not reply.get("ok"):
+            # In replay this means the recording has nothing left for this
+            # source: the run diverged. Refusing beats inventing a value.
+            _fail(reply.get("err", "unknown error"))
+        return reply.get("val")
+
+
+_channel = None
+
+
+def _record(src, value):
+    _channel.call("rec", src, value)
+    return value
+
+
+def _replay(src):
+    return _channel.call("get", src)
+
+
+def _install():
+    import random
+    import time
+    import uuid
+
+    recording = _MODE == "record"
+
+    # --- clock -----------------------------------------------------------
+    # Both the float and _ns variants are patched. Python's own libraries reach
+    # for whichever suits them, and leaving one unpatched would let a run read an
+    # unrecorded clock through the back door.
+
+    real_time, real_monotonic = time.time, time.monotonic
+    real_time_ns, real_monotonic_ns = time.time_ns, time.monotonic_ns
+
+    def _clock(name, real, scale_ns=False):
+        if recording:
+            def fn():
+                v = real()
+                _record(name, v)
+                return v
+        else:
+            def fn():
+                return _replay(name)
+        return fn
+
+    time.time = _clock("time.time", real_time)
+    time.monotonic = _clock("time.monotonic", real_monotonic)
+    time.time_ns = _clock("time.time_ns", real_time_ns)
+    time.monotonic_ns = _clock("time.monotonic_ns", real_monotonic_ns)
+
+    # --- randomness ------------------------------------------------------
+    # Recorded per draw rather than by seeding.
+    #
+    # Re-seeding would be far cheaper, and it does not work: the agent can create
+    # its own random.Random instances, and any library it imports may consume
+    # draws in numbers that change between versions. Recording each value is
+    # slower and actually reproduces what happened.
+
+    real_random, real_getrandbits = random.random, random.getrandbits
+    real_urandom = os.urandom
+    real_uuid4 = uuid.uuid4
+
+    if recording:
+        def _random():
+            v = real_random()
+            _record("random.random", v)
+            return v
+
+        def _getrandbits(k):
+            v = real_getrandbits(k)
+            _record("random.getrandbits", v)
+            return v
+
+        def _urandom(n):
+            v = real_urandom(n)
+            _record("os.urandom", v.hex())
+            return v
+
+        def _uuid4():
+            v = real_uuid4()
+            _record("uuid.uuid4", str(v))
+            return v
+    else:
+        def _random():
+            return _replay("random.random")
+
+        def _getrandbits(k):
+            return _replay("random.getrandbits")
+
+        def _urandom(n):
+            return bytes.fromhex(_replay("os.urandom"))
+
+        def _uuid4():
+            return uuid.UUID(_replay("uuid.uuid4"))
+
+    random.random = _random
+    random.getrandbits = _getrandbits
+    os.urandom = _urandom
+    uuid.uuid4 = _uuid4
+
+    # The module-level helpers are bound methods of a hidden Random instance, so
+    # patching random.random alone leaves randint, choice and shuffle drawing
+    # from the unpatched generator. Rebinding the instance's methods catches all
+    # of them at once.
+    random._inst.random = _random
+    random._inst.getrandbits = _getrandbits
+
+
+if _SOCKET and _MODE:
+    if _MODE not in ("record", "replay"):
+        _fail("HARK_SHIM_MODE must be 'record' or 'replay', got %r" % _MODE)
+    if not hasattr(socket, "AF_UNIX"):
+        _fail("this interpreter has no AF_UNIX support; hark runs on Linux")
+
+    # Everything below is wrapped, because site.py catches Exception around this
+    # module and turns any failure into a warning the run would otherwise
+    # continue past -- recording nothing, and looking fine while doing it.
+    # Converting to SystemExit is what makes a broken shim stop the run.
+    try:
+        _channel = _Channel(_SOCKET)
+        _install()
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - deliberately broad
+        _fail("could not install: %r" % (exc,))
