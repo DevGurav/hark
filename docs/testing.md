@@ -79,6 +79,21 @@ first. It checks the environment, the caller's headers and body after `Inject` r
 field of the resulting `Injection` record. Alongside it: no substitution for a denied host,
 overlapping secret values substituted longest-first, and placeholders scoped per run and per secret.
 
+**`internal/launcher` — Linux only, and enforcement rather than return codes.**
+Landlock cannot be tested in-process: `restrict_self` is irreversible for the calling thread, so the
+first test would restrict the test binary and every later test would run inside that domain. The
+tests therefore re-execute the test binary as a helper, apply a ruleset there, attempt one filesystem
+operation, and read the answer from the exit code.
+
+That shape is deliberate. It measures whether the *kernel refused*, not whether a syscall returned
+zero — which is the difference between containment and the appearance of it. The cases that matter:
+an ungranted path is unreadable, a read-only grant rejects writes, an empty ruleset denies rather
+than allows, and in `TestRealisticLayout` the agent can read its own source and write its workspace
+while being unable to read *or* write the audit log it is being recorded into.
+
+These tests skip rather than fail where Landlock is unavailable, so a container-based environment
+still runs the rest of the suite.
+
 ## Benchmarks
 
 `BenchmarkAdd` and `BenchmarkProve` exist in `internal/mmr`, the latter over a 100,000-leaf range.

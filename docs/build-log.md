@@ -4,6 +4,49 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — Landlock, against the real kernel
+
+First session working directly against the VM rather than writing code to be tested later. Edits
+happen locally, sync to the box, build and test there — so the repo's git history and identity stay
+on one machine while the syscalls get exercised on another.
+
+**What landed.** `internal/launcher/landlock_linux.go`: ABI probe, rights masked to what the running
+kernel supports, `NO_NEW_PRIVS`, `restrict_self`. A build-tagged stub covers non-Linux hosts so the
+pure-logic packages still build on Windows — and the stub returns an error rather than succeeding
+quietly, because a containment layer that reports success while doing nothing is the exact failure
+this project exists to prevent.
+
+**Two kernel facts worth writing down**, both now enforced by the code and its tests.
+
+`landlock_restrict_self` restricts the *calling thread*, not the process. Go moves goroutines between
+threads whenever it likes, so this cannot be called from an ordinary goroutine and trusted. It needs
+`runtime.LockOSThread` with `execve` following on the same thread. That is the concrete justification
+for the re-exec design the launcher will use — not a stylistic preference borrowed from runc.
+
+An empty ruleset denies everything rather than allowing everything. A policy granting no paths
+therefore fails closed, which is the right direction, but it is the sort of thing someone later
+"simplifies" into an early return.
+
+**Testing shape.** Landlock cannot be tested in-process, since the first test would restrict the test
+binary and every later test would inherit that domain. So the tests re-execute the test binary as a
+helper, apply a ruleset, attempt one filesystem operation, and read the answer from its exit code.
+That measures whether the kernel actually refused rather than whether a syscall returned zero, which
+is the whole difference between containment and the appearance of it.
+
+`TestRealisticLayout` is the one to point at: the agent reads its own source, writes its workspace,
+and can neither read nor write the bundle it is being recorded into.
+
+**A dependency trap.** `go get golang.org/x/sys/unix` silently raised the module's Go directive to
+1.25, which would have broken the VM's 1.23.5 toolchain and CI both. The bump came from the latest
+x/sys and persisted after pinning an older one, because Go never lowers the directive on its own.
+Set back to 1.23.0 by hand; the pinned x/sys builds fine there.
+
+**Verified.** Landlock ABI 7 on kernel 6.17. Eight enforcement tests green on the box, full suite
+green on both machines, vet and gofmt clean.
+
+**Next.** Seccomp and capability drop, then the netns/veth setup and the re-exec init child that ties
+them together.
+
 ## 2026-08-16 — W2 begins: policy loader and SNI parser
 
 Started W2 with the parts that have no kernel dependency, so they could be written with the VM

@@ -31,7 +31,7 @@ the sender.
 | A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code. The intended host is recovered from the TLS SNI, so the attempt is recorded rather than silently dropped | W2 |
 | A1 exfiltrates over DNS | The mediator is the namespace's only resolver; every lookup is a recorded, policy-checked event and every A answer points back at the mediator | W2 |
 | A1 dials a literal IP to skip DNS | Still has nowhere to route except the mediator; recorded as an attempt with an empty host rather than allowed by default | W2 |
-| A1 reads files outside its workspace | Landlock filesystem scoping | W2 |
+| A1 reads files outside its workspace | Landlock filesystem scoping | mechanism done and tested against the kernel; launcher wiring pending |
 | A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | W2 |
 | A1 edits or deletes its own audit log | The log lives in Zone 0; no Landlock rule grants a path to it | W2 |
 | A1 hides an attempt by crashing afterwards | `EgressAttempt` is written before the decision, and the writer fsyncs after a denial | done (writer) |

@@ -212,10 +212,23 @@ never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens
 
 - [ ] Create a network namespace and veth pair. Address the host end and the namespace end; bring up
       `lo`. **Set no default route.**
-- [ ] Apply Landlock: read-only on `ReadPaths`, read-write on `WritePaths`, nothing else. The bundle
-      path must not be reachable.
-- [ ] `NO_NEW_PRIVS`, drop all capabilities, apply a seccomp filter.
+- [x] Apply Landlock: read-only on `ReadPaths`, read-write on `WritePaths`, nothing else. The bundle
+      path must not be reachable — `internal/launcher/landlock_linux.go`. ABI probed at startup and
+      the run refuses below ABI 2; rights masked to what the kernel supports; `NO_NEW_PRIVS` set
+      before `restrict_self`.
+- [ ] Drop all capabilities, apply a seccomp filter. (`NO_NEW_PRIVS` is already set by the Landlock
+      step.)
 - [ ] Exec the child with the broker's placeholder environment.
+
+Two constraints the Landlock work imposes on the launcher, both verified against the kernel:
+
+`landlock_restrict_self` restricts the **calling thread**, not the process. Go moves goroutines
+between threads freely, so it must run under `runtime.LockOSThread` with `execve` following on that
+same thread. That is the concrete reason the launcher re-executes itself rather than doing the setup
+in a goroutine, and it is what the init child exists for.
+
+An empty ruleset **denies everything** rather than allowing everything, so a policy that grants no
+paths fails closed. Worth knowing before someone "simplifies" the empty case.
 
 **Acceptance.**
 
