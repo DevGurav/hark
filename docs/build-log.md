@@ -42,8 +42,35 @@ executions with no crash.
 
 **Verified.** Full suite green, vet and gofmt clean.
 
-**Next.** Still off-VM: the secrets broker and per-run CA generation. Then one focused VM session for
-the launcher (netns, Landlock, seccomp), the DNS responder, and integration.
+Continued in the same session with the other two kernel-independent pieces.
+
+**Broker.** The design decision worth recording is that `Inject` never mutates its inputs. It works
+on copies and returns them, so the caller records the originals — which still hold placeholders — and
+sends the copies. The alternative is a rule every call site has to remember, and forgetting once puts
+a live credential into an artifact designed to be published. Structural beats documented here.
+
+Two smaller things that would have been bugs. Placeholders carry both the run id and the logical
+name: without the logical name, substitution cannot tell two secrets apart. And values are replaced
+longest-first, because if one secret's value contains another's, replacing the shorter first mangles
+the longer, which then fails to match and travels unsubstituted.
+
+`Inject` also refuses to substitute for a denied host even though the mediator checks policy first.
+Redundant by design — if that check regresses, the credential still does not travel.
+
+**CA.** Fresh per run, memory only, P-256, 24-hour validity, path length constrained to zero, private
+key with no accessor. A CA on disk can be stolen; one outliving its run can forge certificates long
+after. Regenerating costs milliseconds against a standing risk.
+
+Tested end to end through a real `tls.Listen` and a real client trusting only that CA. That is what
+proves interception is transparent to the agent — asserting on certificate fields would not. The
+converse matters too and is covered: a client with default roots must be rejected, and run B's CA
+must not validate run A's leaf.
+
+**Verified.** 88 tests, 118 with subtests, across 8 packages. Build, vet, gofmt clean.
+
+**Next.** The off-VM work is done. One focused VM session remains for W2: the launcher (netns,
+Landlock ABI detection, seccomp, capability drop), the DNS responder, egress recording, and wiring it
+all behind `hark run`.
 
 ---
 
