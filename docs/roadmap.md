@@ -7,17 +7,18 @@ This file is the state of the work. The implementation specs in [build/](build/)
 gets executed — file paths, interfaces, acceptance commands and traps. Open the spec for the current
 phase before writing code.
 
-## W0 — groundwork · not started
+## W0 — groundwork · **mostly done**
 
 Spec: [build/w0-groundwork.md](build/w0-groundwork.md)
 
-- [ ] Provision the Linux box. Oracle Cloud Ampere free tier, Mumbai region, Ubuntu 24.04. Fallback
-      is a Hetzner CX22 at roughly ₹400/month.
-- [ ] Throwaway shell prototype: netns + veth + a MITM proxy, proving a `curl` inside the namespace
-      is intercepted. This exists to convert W2 from discovery into translation.
+- [x] Provision the Linux box. Azure for Students, Ubuntu 24.04, kernel 6.17, 2 vCPU / 3.8 GiB.
+- [x] Confirm `landlock` appears in `/sys/kernel/security/lsm` — present, **ABI version 7**.
+- [x] Throwaway prototype: netns + veth, containment proven, TLS interception through a per-run CA
+      proven, and mediated DNS + SNI host identification proven. Transcript in
+      [build/w2-launcher.md](build/w2-launcher.md).
+- [x] Repo builds and tests green on the target box, race detector included.
 - [ ] Verify every row of the README's related-work table against the actual projects. The table
       ships only once each claim has been checked against source, not against a summary.
-- [ ] Confirm `landlock` appears in `/sys/kernel/security/lsm` on the target kernel.
 
 ## W1 — bundle format and verifier · **done**
 

@@ -15,12 +15,107 @@ This is the highest-variance week. Every trap below has cost someone a day.
 
 ## Verified mechanics
 
-*Populate this section during W0 with the exact commands that worked on the target kernel. Leaving
-it empty and improvising is how W2 overruns.*
+Confirmed working on kernel 6.6.143 during W0. These are the exact commands to translate into
+`internal/launcher`, not a sketch to improvise from.
+
+```sh
+ip netns add harkns
+ip link add veth-h type veth peer name veth-n
+ip link set veth-n netns harkns
+ip addr add 10.200.1.1/24 dev veth-h
+ip link set veth-h up
+ip netns exec harkns ip addr add 10.200.1.2/24 dev veth-n
+ip netns exec harkns ip link set veth-n up
+ip netns exec harkns ip link set lo up
+```
+
+The resulting routing table inside the namespace is one line, and that single line is the entire
+containment story:
 
 ```text
-(paste the working netns + veth + CA transcript here in W0)
+10.200.1.0/24 dev veth-n proto kernel scope link src 10.200.1.2
 ```
+
+A link route to the mediator and nothing else. No default route, so there is nowhere else to send a
+packet.
+
+Three properties were verified rather than assumed:
+
+| Check | Result |
+| --- | --- |
+| `curl https://example.com` inside the namespace | blocked — no route |
+| Same, with `HTTPS_PROXY` and `https_proxy` unset | still blocked — the namespace is the control, not the environment |
+| `ping 10.200.1.1` (the mediator end) | reachable |
+
+The second row is the one that gets asked about in review. An agent that strips its proxy variables,
+spawns a child, or writes raw sockets still has no route, because the control is the routing table
+and not a convention the process is trusted to honour.
+
+### TLS interception, verified
+
+A per-run CA, `mitmdump` bound to the mediator end, and a client inside the namespace:
+
+```sh
+curl --proxy http://10.200.1.1:8080 --cacert <ca>.pem https://example.com
+# HTTP 200  ssl_verify_result=0
+```
+
+`ssl_verify_result=0` is the part that matters: the client validated the certificate against the
+run's own CA, so interception is transparent to it. The mediator saw full plaintext:
+
+```text
+10.200.1.2:52634: GET https://example.com/ HTTP/2.0
+      << HTTP/2.0 200 OK 559b
+10.200.1.2:52644: GET https://api.github.com/zen HTTP/2.0
+      << HTTP/2.0 200 OK 39b
+```
+
+### Mediated DNS and SNI, verified
+
+An explicit proxy only works for a cooperating client, and a non-cooperating one must still be
+*recorded*, not silently dropped. See
+[ADR-0006](../decisions/0006-mediated-dns-and-sni-host-identification.md).
+
+Per-namespace resolver, using the kernel's own mechanism — `ip netns exec` bind-mounts
+`/etc/netns/<name>/` over `/etc/`:
+
+```sh
+mkdir -p /etc/netns/harkns
+echo "nameserver 10.200.1.1" > /etc/netns/harkns/resolv.conf
+```
+
+The mediator answers every A query with its own address and reads the intended host from the TLS
+ClientHello. Result, with `HTTPS_PROXY`, `https_proxy` and `ALL_PROXY` all unset:
+
+```text
+DNS      QUERY evil.example type 1
+         QUERY generativelanguage.googleapis.com type 1
+MEDIATOR CONNECTION FROM ('10.200.1.2', 42490) -> intended host: evil.example
+         CONNECTION FROM ('10.200.1.2', 42496) -> intended host: generativelanguage.googleapis.com
+```
+
+An agent that ignores every proxy convention still names its destination twice, in full, at the
+mediator. That is what makes "every attempt is on the record" true rather than aspirational.
+
+Two notes for the implementation. The mediator binds 53 and 443, so it needs privileged ports — the
+supervisor already requires `CAP_NET_ADMIN` for the namespace, so this adds nothing new. And
+`SO_ORIGINAL_DST` is deliberately unused: DNAT conntrack state performed inside the namespace is not
+visible to a process outside it, so SNI is not merely simpler here, it is the only thing that works.
+
+### Environment caveats found in W0
+
+**Landlock is unavailable in a container.** The W0 prototype ran in a hosted shell whose active LSM
+list was `capability,lockdown,yama,loadpin,safesetid,apparmor,bpf` — no `landlock`. Namespaces,
+veth and seccomp all work there; filesystem scoping does not. Everything in this phase except task 2's
+Landlock step can therefore be developed in such an environment, but the Landlock path must be
+verified on a real VM before W2 is called done.
+
+This is a reason to get the capability detection right rather than a reason to wait: query the
+Landlock ABI at startup and **refuse to run** when the required version is missing. A silent no-op
+looks contained and is not.
+
+**seccomp is not pre-applied.** `/proc/self/status` reported `Seccomp: 0` and `Seccomp_filters: 0`,
+so no inherited filter constrains the launcher and it is free to install its own.
 
 ## Deliverables
 
@@ -33,6 +128,8 @@ it empty and improvising is how W2 overruns.*
 | `internal/broker/broker.go` | Placeholder generation and credential injection at the boundary. |
 | `internal/mediator/mediator.go` | TLS termination, HTTP recording, egress policy evaluation. |
 | `internal/mediator/ca.go` | Per-run CA generation and leaf signing. |
+| `internal/mediator/dns.go` | Namespace resolver: answers every A query with the mediator address. |
+| `internal/mediator/sni.go` | Recover the intended host from the TLS ClientHello. |
 | `cmd/hark/run.go` | Wire it together behind `hark run`. |
 
 Build tags matter: everything kernel-specific goes in `*_linux.go` with a `//go:build linux` guard
@@ -135,6 +232,23 @@ because the namespace and not the environment is the control.
 
 **Acceptance.** `curl https://example.com` inside the namespace succeeds and the mediator sees
 plaintext.
+
+### 3b. Mediated DNS and SNI
+
+Per [ADR-0006](../decisions/0006-mediated-dns-and-sni-host-identification.md). This is what makes a
+non-cooperating agent's attempts recordable instead of silently dropped.
+
+- [ ] Write `/etc/netns/<ns>/resolv.conf` pointing at the mediator; clean it up on exit.
+- [ ] UDP resolver on the mediator address, port 53. Answer A queries with the mediator's own
+      address. Answer other qtypes with NOERROR and no answers so clients fall back to A.
+- [ ] Record `DnsQuery` and `DnsDecision` (next free event kind numbers — never renumber existing
+      ones; update `docs/protocol.md` in the same commit).
+- [ ] Parse SNI from the ClientHello on the 443 listener to recover the intended host.
+- [ ] Handle the cases ADR-0006 lists as limitations: plain HTTP falls back to the `Host` header, a
+      literal-IP dial is recorded as an attempt with an empty host rather than allowed by default.
+
+**Acceptance.** With `HTTPS_PROXY`, `https_proxy` and `ALL_PROXY` all unset, a request to a
+disallowed host produces both a `DnsQuery` and an `EgressAttempt` naming that host, and is denied.
 
 ### 4. Egress policy and recording
 

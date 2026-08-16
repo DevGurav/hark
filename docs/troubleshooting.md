@@ -42,6 +42,24 @@ vendor them with `go mod vendor`.
 
 Not implemented yet. W2 through W4 — see [roadmap.md](roadmap.md).
 
+## Landlock is missing from the LSM list
+
+```sh
+cat /sys/kernel/security/lsm
+```
+
+If `landlock` is absent, filesystem scoping cannot work on that host and `hark run` will refuse
+rather than run uncontained.
+
+Two common causes. On a **container-based environment** — a hosted cloud shell, a CI runner, most
+managed sandboxes — you are on the provider's kernel and cannot enable it; network namespaces, veth
+and seccomp will usually still work, so everything except filesystem scoping remains developable.
+On a **real host** it usually needs `lsm=` extended on the kernel command line to include
+`landlock`, followed by a reboot.
+
+A hosted shell measured during W0 reported
+`capability,lockdown,yama,loadpin,safesetid,apparmor,bpf` — a realistic example of the first case.
+
 ## Anything involving netns, Landlock or seccomp
 
 None of it exists yet, and when it does it will be Linux-only. Do not attempt that work under WSL2:

@@ -4,6 +4,59 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — W0: the box, and a hole in the containment design
+
+Provisioned the target machine and ran the prototype. It found a real defect in the design, which is
+exactly what the phase was for.
+
+**The box.** Ubuntu 24.04 on Azure, kernel 6.17, 2 vCPU / 3.8 GiB. `landlock` is in the active LSM
+list at **ABI version 7**, so no kernel command-line surgery was needed and the full ruleset feature
+set is available. No inherited seccomp filter, so the launcher is free to install its own. The repo
+builds and its tests pass there, including under `-race`, which the Windows box cannot run for want
+of cgo.
+
+Before that box existed I ran the same probe in a hosted shell, which reported
+`capability,lockdown,yama,loadpin,safesetid,apparmor,bpf` — no `landlock`. Namespaces, veth and
+seccomp all worked there; only filesystem scoping did not. Worth recording because it is the
+signature of every container-based environment, and it is now in `docs/troubleshooting.md`.
+
+**Containment, proven rather than assumed.** A network namespace with a veth pair and a single link
+route. A process inside it cannot reach the network. A process that unsets `HTTPS_PROXY`,
+`https_proxy` and `ALL_PROXY` also cannot reach the network, because the routing table is the control
+and the environment variable is only a convenience. TLS interception with a per-run CA works and is
+transparent to the client — `curl` reported `ssl_verify_result=0` while the mediator logged the full
+plaintext request and response.
+
+**The defect.** The original design was netns with no default route plus `HTTPS_PROXY`. Cooperating
+agents go through the mediator; non-cooperating ones have no route and fail. Safe, but *silent*: the
+packet dies at the routing layer, the mediator never sees it, and nothing is recorded. The project
+claims every attempt to cross the boundary is on the record, and that claim was breaking in precisely
+the case that matters most — the agent that is misbehaving.
+
+The prototype surfaced it concretely. With no resolver in the namespace, a non-cooperating `curl`
+failed at DNS before any TCP connection existed, so the DNAT rule I had added never even fired. And
+handing the namespace an ordinary resolver would have fixed that while opening a textbook
+exfiltration channel, since DNS tunneling needs nothing more than the ability to resolve
+attacker-chosen names.
+
+**The fix**, now ADR-0006: the mediator serves DNS for the namespace and answers every A query with
+its own address, then recovers the intended host from the TLS ClientHello's SNI. Verified end to end
+— an agent with every proxy variable unset named `evil.example` twice, once in the DNS query and once
+in the SNI, both at the mediator. Per-namespace resolver configuration needs no container runtime:
+`ip netns exec` already bind-mounts `/etc/netns/<name>/` over `/etc/`.
+
+A detail worth keeping: `SO_ORIGINAL_DST` is not merely unnecessary here, it cannot work. Conntrack
+state for a DNAT performed inside the namespace is not visible to a process outside it. SNI sidesteps
+the problem instead of fighting it.
+
+**Verified.** Landlock ABI 7 confirmed by direct syscall probe. Three containment proofs. TLS
+interception against two hosts. Mediated DNS and SNI recovery against an allowlisted host and a
+disallowed one. Full test suite green on the target box under `-race`.
+
+**Next.** The related-work table is the one W0 item still open — every row needs checking against the
+actual project before the repo goes public. Then W2, which gained two tasks and two event kinds from
+today's finding.
+
 ## 2026-08-16 — W1: bundle format, Merkle Mountain Range, verifier
 
 Built the entire cryptographic and format layer, deliberately before touching anything kernel-related.
