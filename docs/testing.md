@@ -130,3 +130,19 @@ has to come before any number is published.
 `hark synth` writes a bundle describing the prompt-injection incident without needing the recorder.
 `-corrupt N` flips a byte in one event's payload; `-truncate N` stops early, leaving the bundle
 unsealed. Both exist so the verifier can be shown catching things rather than asserted to.
+
+**`internal/mediator` server — loopback stands in for the veth.**
+Bind address and ports are configuration rather than constants, so the DNS responder, the TLS
+listener, policy evaluation and the forwarding path all run on `127.0.0.1` with high ports in tests.
+A real run differs only in using the veth address and 53/443, which means the whole server is
+exercised without a namespace, without privilege, and on any OS.
+
+`TestAllowedHostIsForwardedAndRecorded` is the one to read. It stands a local TLS server in for the
+model endpoint, drives it through a real `http.Client` trusting only the run's CA, and then asserts
+the property the broker exists for from both directions: the upstream received the real credential,
+and neither the recorded request nor the `SecretInjected` event contains it.
+
+The denial path is covered for each way a connection can fail to name a host it is allowed to reach —
+a disallowed SNI, no SNI at all, and traffic that is not TLS. Each must be recorded rather than
+merely refused, and `TestAttemptIsRecordedBeforeDecision` pins the ordering that makes an attempt
+survive a crash between the two.

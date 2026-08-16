@@ -4,6 +4,54 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-16 — the mediator listens
+
+DNS responder, TLS termination, policy evaluation and the forwarding path. Written off-VM, because
+none of it needs a kernel feature: bind address and ports became configuration, so the whole server
+runs on loopback with high ports in tests and differs from a real run only in using the veth address
+and 53/443.
+
+**Where the total order comes from.** Recording happens under one lock in the mediator. That is the
+only place concurrent boundary crossings are ordered, and it is what replay will follow. It
+deliberately stops at the boundary: two threads racing on a dict inside the agent are not ordered by
+anything here, and the replayer is meant to detect that rather than pretend otherwise.
+
+**Denials are synced, and the attempt is written first.** A denial is the evidence the bundle exists
+to carry, so a crash immediately afterwards must not be able to erase it. Writing the attempt before
+the verdict means a crash between the two still leaves the attempt on the record.
+
+**A connection with no SNI is denied, not allowed.** That is a literal-IP dial. Policy is expressed
+in host names, so a connection carrying none cannot match it, and defaulting to permit would make
+skipping DNS an escape hatch.
+
+**The broker's guarantee, tested from both ends.** The recorded request holds the placeholder; only
+the copy sent upstream holds the credential. That is structural rather than careful, because Inject
+returns copies instead of mutating -- so the recorded request cannot accidentally be the injected
+one. The test asserts the upstream received the real value *and* that neither the recorded request
+nor the SecretInjected event contains it.
+
+**ALPN pinned to http/1.1.** Letting the client negotiate h2 would mean unpacking framed
+multiplexing before anything could be recorded per request, for throughput no agent notices beside
+model latency.
+
+**Occurrence ordinals now, matching later.** One run can send byte-identical requests and get
+different answers -- a retry after a 429 is the ordinary case. The ordinal is recorded now so W3 has
+it; headers stay out of the key for the moment, since they carry the injected credential and
+canonicalising them properly is the two-day job that belongs with the replay work.
+
+**A fixture bug worth noting.** The forwarding test first failed with an empty placeholder: the test
+policy had no `[secrets]` mapping, and the broker takes environment-variable names from there. The
+test now asserts the placeholder is non-empty before proceeding, so the same mistake fails with a
+sentence rather than a confusing diff.
+
+**Verified.** 109 tests, 156 with subtests, across 9 packages. Build, vet, gofmt clean; race clean.
+
+**Next.** `hark run`: wire policy, broker, mediator, launcher and bundle together, write
+`/etc/netns/<ns>/resolv.conf`, and run the whole thing on the VM against a real `curl`. That closes
+W2.
+
+---
+
 ## 2026-08-16 — the launcher: containment working end to end
 
 The three restriction layers now actually reach an agent, via the re-executed init child that ties

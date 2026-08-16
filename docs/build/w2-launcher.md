@@ -228,6 +228,7 @@ never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens
       binary re-executes itself with a sentinel argument and does all of it on one locked thread; see
       [ADR-0007](../decisions/0007-re-executing-init-child.md).
 - [ ] Pass the broker's placeholders in as that environment. *(needs `hark run` wiring)*
+- [ ] Write `/etc/netns/<ns>/resolv.conf` pointing at the mediator. *(needs `hark run` wiring)*
 
 Two constraints the Landlock work imposes on the launcher, both verified against the kernel:
 
@@ -272,9 +273,11 @@ non-cooperating agent's attempts recordable instead of silently dropped.
       pointer following, A responses pointing at the mediator, and NOERROR-with-no-answers for
       everything else so clients fall back to A. Names are lower-cased at parse time and validated
       before they can reach policy or the log.
-- [ ] Bind it: UDP listener on the mediator address, port 53. *(needs the VM)*
-- [ ] Record `DnsQuery` and `DnsDecision` (next free event kind numbers — never renumber existing
-      ones; update `docs/protocol.md` in the same commit).
+- [x] Bind it: UDP listener on the mediator address, port 53 — `internal/mediator/mediator.go`.
+      Address and ports are configuration, so the whole server runs on loopback with high ports in
+      tests and needs neither a namespace nor privilege.
+- [x] Record `DnsQuery` and `DnsDecision` — kinds 17 and 18, existing numbers untouched,
+      `docs/protocol.md` updated alongside.
 - [x] Parse SNI from the ClientHello on the 443 listener to recover the intended host —
       `internal/mediator/sni.go`. Bounds-checked throughout, fuzzed, and validates the recovered name
       before it reaches policy or the log.
@@ -286,11 +289,12 @@ disallowed host produces both a `DnsQuery` and an `EgressAttempt` naming that ho
 
 ### 4. Egress policy and recording
 
-- [ ] On CONNECT or on the TLS handshake, write `EgressAttempt` **before** evaluating policy.
-- [ ] Evaluate, then write `EgressDecision` with the rule that decided it.
-- [ ] `Sync()` immediately after a denial. The denial is the evidence the bundle exists to carry; a
+- [x] On the TLS handshake, write `EgressAttempt` **before** evaluating policy.
+- [x] Evaluate, then write `EgressDecision` with the rule that decided it.
+- [x] `Sync()` immediately after a denial. The denial is the evidence the bundle exists to carry; a
       crash straight afterwards must not erase it.
-- [ ] On allow, record `LLMRequest`, then `LLMResponseChunk` per chunk, then `LLMResponseEnd`.
+- [x] On allow, record `LLMRequest`, then `LLMResponseChunk` per chunk, then `LLMResponseEnd` —
+      `internal/mediator/forward.go`. Chunks are recorded as framed on the wire, before reassembly.
 
 **Acceptance.** `hark verify` on the produced bundle reports `VERIFIED`, and `hark inspect` shows the
 attempt/decision pair with the denial.
@@ -306,9 +310,9 @@ attempt/decision pair with the denial.
 - [x] Refuse to substitute for a host the policy denies — a second check behind the mediator's, so a
       regression in the first one still cannot put a credential on the wire.
 - [x] `ContainsSecret` for the recorder to assert against anything about to be written.
-- [ ] Record `SecretInjected` by reference: logical name, placeholder, host, and a hash of the real
-      value. **Never the value.** *(needs the mediator wiring; `Injection` already carries exactly
-      these fields and nothing else)*
+- [x] Record `SecretInjected` by reference: logical name, placeholder, host, and a hash of the real
+      value. **Never the value.** Tested: the real credential appears in neither the recorded request
+      nor the event.
 
 **Acceptance.** A test asserts the real secret appears nowhere in the bundle bytes. Write this test
 first — it is the one whose failure would be worst. **Done** —
