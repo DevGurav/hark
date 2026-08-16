@@ -3,7 +3,6 @@ package mediator
 import (
 	"bufio"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -271,49 +270,33 @@ func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange
 func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange uint64) error {
 	defer resp.Body.Close()
 
-	// Write the status line and headers first, so the agent can start parsing.
-	if err := writeResponseHead(agent, resp); err != nil {
-		return err
+	// Let net/http write the response, rather than hand-rolling the head.
+	//
+	// Framing is the reason. Hand-writing the status line and headers and then
+	// streaming the body raw only works when the upstream sent a Content-Length.
+	// When it did not -- a chunked response, which is every streaming endpoint --
+	// the agent has no way to know where the body ends, so it reads until the
+	// connection closes. That never happens, because the mediator is waiting for
+	// the next request on the same connection, and the agent times out holding a
+	// complete response it cannot see the end of.
+	//
+	// Response.Write derives the framing from ContentLength and TransferEncoding
+	// the way a real server would. Wrapping the body keeps the chunk recording,
+	// so nothing is lost by handing off the framing.
+	body := &recordingBody{
+		inner:    resp.Body,
+		mediator: m,
+		exchange: exchange,
+		lastAt:   time.Now(),
 	}
+	resp.Body = body
 
-	var (
-		seq      uint32
-		lastAt   = time.Now()
-		buf      = make([]byte, 32*1024)
-		relayErr error
-	)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			now := time.Now()
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			m.record(logfmt.KindLLMResponseChunk, logfmt.LLMResponseChunk{
-				Seq:       seq,
-				Data:      chunk,
-				SincePrev: now.Sub(lastAt).Nanoseconds(),
-				Exchange:  exchange,
-			})
-			seq++
-			lastAt = now
-
-			if _, werr := agent.Write(chunk); werr != nil {
-				relayErr = werr
-				break
-			}
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				relayErr = err
-			}
-			break
-		}
-	}
+	relayErr := resp.Write(agent)
 
 	end := logfmt.LLMResponseEnd{
 		Status:     resp.StatusCode,
 		Headers:    flatten(resp.Header),
-		ChunkCount: seq,
+		ChunkCount: body.chunks,
 		Exchange:   exchange,
 	}
 	if relayErr != nil {
@@ -322,6 +305,39 @@ func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange u
 	m.record(logfmt.KindLLMResponseEnd, end)
 	return relayErr
 }
+
+// recordingBody records each read as it passes through.
+//
+// Reads are recorded at the boundary they arrive on, before anything
+// reassembles them, because agent code branches on partial parses and those
+// boundaries are themselves a source of nondeterminism.
+type recordingBody struct {
+	inner    io.ReadCloser
+	mediator *Mediator
+	exchange uint64
+	chunks   uint32
+	lastAt   time.Time
+}
+
+func (b *recordingBody) Read(p []byte) (int, error) {
+	n, err := b.inner.Read(p)
+	if n > 0 {
+		now := time.Now()
+		chunk := make([]byte, n)
+		copy(chunk, p[:n])
+		b.mediator.record(logfmt.KindLLMResponseChunk, logfmt.LLMResponseChunk{
+			Seq:       b.chunks,
+			Data:      chunk,
+			SincePrev: now.Sub(b.lastAt).Nanoseconds(),
+			Exchange:  b.exchange,
+		})
+		b.chunks++
+		b.lastAt = now
+	}
+	return n, err
+}
+
+func (b *recordingBody) Close() error { return b.inner.Close() }
 
 func writeResponseHead(w io.Writer, resp *http.Response) error {
 	if _, err := fmt.Fprintf(w, "HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode)); err != nil {

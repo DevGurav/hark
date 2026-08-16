@@ -25,6 +25,12 @@ type RunStart struct {
 	PolicyHash  []byte   `cbor:"5,keyasint"`
 	WorkingDir  string   `cbor:"6,keyasint"`
 	ProviderSet []string `cbor:"7,keyasint"` // hosts the mediator was prepared to broker
+
+	// Argv is what was executed. Recorded so a bundle is enough to replay a run
+	// on its own -- without it, replay would need the original command supplied
+	// again, and an artifact that cannot be acted on without out-of-band
+	// knowledge is a weaker artifact.
+	Argv []string `cbor:"8,keyasint"`
 }
 
 // PolicyLoaded records the effective policy in full, not just its hash, so a
