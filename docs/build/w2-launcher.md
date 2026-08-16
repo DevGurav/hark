@@ -216,8 +216,11 @@ never `filepath.Clean`, which rewrites `/app` to `\app` when the parsing happens
       path must not be reachable — `internal/launcher/landlock_linux.go`. ABI probed at startup and
       the run refuses below ABI 2; rights masked to what the kernel supports; `NO_NEW_PRIVS` set
       before `restrict_self`.
-- [ ] Drop all capabilities, apply a seccomp filter. (`NO_NEW_PRIVS` is already set by the Landlock
-      step.)
+- [x] Drop all capabilities — `internal/launcher/caps_linux.go`. Ambient set, then bounding set, then
+      permitted/effective/inheritable, in that order: dropping the bounding set needs `CAP_SETPCAP`,
+      so clearing permitted first would strand it populated with no way left to empty it.
+- [x] Apply a seccomp filter — `internal/launcher/seccomp_linux.go`. Hand-assembled classic BPF,
+      architecture pinned, `EPERM` rather than kill so a denial is a debuggable error.
 - [ ] Exec the child with the broker's placeholder environment.
 
 Two constraints the Landlock work imposes on the launcher, both verified against the kernel:

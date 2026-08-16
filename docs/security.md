@@ -32,7 +32,9 @@ the sender.
 | A1 exfiltrates over DNS | The mediator is the namespace's only resolver; every lookup is a recorded, policy-checked event and every A answer points back at the mediator | W2 |
 | A1 dials a literal IP to skip DNS | Still has nowhere to route except the mediator; recorded as an attempt with an empty host rather than allowed by default | W2 |
 | A1 reads files outside its workspace | Landlock filesystem scoping | mechanism done and tested against the kernel; launcher wiring pending |
-| A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | W2 |
+| A1 escalates privilege | `NO_NEW_PRIVS`, all capabilities dropped, seccomp | mechanism done and tested against the kernel; launcher wiring pending |
+| A1 reconfigures the namespace holding it | The supervisor's `CAP_NET_ADMIN` is dropped before exec, and `unshare`/`setns` are denied by seccomp | mechanism done and tested |
+| A1 reads another process's memory | seccomp denies `ptrace` and `process_vm_readv`/`writev`, which need no capability between processes of the same user | mechanism done and tested |
 | A1 edits or deletes its own audit log | The log lives in Zone 0; no Landlock rule grants a path to it | W2 |
 | A1 hides an attempt by crashing afterwards | `EgressAttempt` is written before the decision, and the writer fsyncs after a denial | done (writer) |
 | A2 or A3 edits a bundle | Per-frame leaf hashes and a hash chain; the verifier names the faulting event and distinguishes an edit from a splice | done |
