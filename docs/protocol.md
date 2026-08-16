@@ -145,6 +145,11 @@ Numbers are never reused or renumbered. An unknown kind does not prevent verific
 covers opaque payload bytes and never needs them decoded — but replay must refuse to proceed past a
 kind it cannot interpret rather than silently skipping it.
 
+**Reserved, landing in W2:** `17 DnsQuery` and `18 DnsDecision`, mirroring the
+`EgressAttempt`/`EgressDecision` pair. The mediator is the namespace's only resolver, so a name
+lookup is a policy decision point and an event in its own right — see
+[ADR-0006](decisions/0006-mediated-dns-and-sni-host-identification.md).
+
 ## Payload encoding
 
 CBOR Core Deterministic Encoding (RFC 8949 §4.2.1): shortest-form integers, definite-length
