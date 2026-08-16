@@ -50,7 +50,9 @@ func main() {
 		err = cmdSynth(os.Args[2:])
 	case "run":
 		err = cmdRun(os.Args[2:])
-	case "replay", "fork", "bisect":
+	case "replay":
+		err = cmdReplay(os.Args[2:])
+	case "fork", "bisect":
 		fmt.Fprintf(os.Stderr, "hark %s: not implemented yet -- see docs/roadmap.md\n", os.Args[1])
 		os.Exit(2)
 	case "version", "--version", "-v":
@@ -85,7 +87,10 @@ runtime commands
   run      -policy FILE [-o BUNDLE] [-key FILE] [-write DIR] -- COMMAND...
            run COMMAND inside a recorded, contained namespace (Linux, root)
 
-  replay, fork, bisect        not yet implemented
+  replay   [-o BUNDLE] [-keep] <bundle>
+           re-run a recording against itself and compare the actions
+
+  fork, bisect                not yet implemented
 
   version                      print the version
   help                         print this message

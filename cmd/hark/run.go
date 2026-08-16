@@ -19,6 +19,7 @@ import (
 	"github.com/DevGurav/hark/internal/mediator"
 	"github.com/DevGurav/hark/internal/policy"
 	"github.com/DevGurav/hark/internal/runid"
+	"github.com/DevGurav/hark/internal/shim"
 	"github.com/DevGurav/hark/internal/signer"
 )
 
@@ -126,6 +127,7 @@ func cmdRun(args []string) error {
 		Recorder:    Version,
 		WorkingDir:  *workDir,
 		ProviderSet: pol.AllowHosts,
+		Argv:        fs.Args(),
 	})
 	rec.append(logfmt.KindPolicyLoaded, logfmt.PolicyLoaded{
 		Source:     *policyPath,
@@ -135,9 +137,24 @@ func cmdRun(args []string) error {
 		Raw:        rawPolicy,
 	})
 
+	// The shim captures the clock and RNG reads that never cross the network
+	// boundary. Without it a recording cannot replay, so it starts before the
+	// agent does.
+	shimServer, err := shim.New(runDir, shim.ModeRecord, rec, nil)
+	if err != nil {
+		return err
+	}
+	go func() { _ = shimServer.Serve() }()
+	defer shimServer.Close()
+
+	shimDir, err := shimSourceDir()
+	if err != nil {
+		return err
+	}
+
 	placeholders := br.Placeholders()
 	caPath := filepath.Join(runDir, "ca.pem")
-	agentEnv := buildEnv(placeholders, caPath)
+	agentEnv := append(buildEnv(placeholders, caPath), shimServer.Env(shimDir)...)
 	rec.append(logfmt.KindEnvSnapshot, logfmt.EnvSnapshot{Vars: placeholders})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -155,7 +172,7 @@ func cmdRun(args []string) error {
 		Argv:       fs.Args(),
 		Env:        agentEnv,
 		WorkDir:    *workDir,
-		ReadPaths:  append(append([]string{}, pol.ReadPaths...), runDir),
+		ReadPaths:  append(append([]string{}, pol.ReadPaths...), runDir, shimDir),
 		WritePaths: append(append([]string{}, pol.WritePaths...), writePaths...),
 		ResolvConf: filepath.Join(runDir, "resolv.conf"),
 
