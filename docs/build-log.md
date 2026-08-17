@@ -4,6 +4,92 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-17 — W4 on the box: five defects, one of them the important one
+
+The demo runs end to end on kernel 6.17. Recorded 31 events, `REPLAY-EQUAL`, forked at event 11 with
+the injection stripped, both runs rendered.
+
+```text
+FORKED  provably identical prefix, live suffix
+  branch at    event 11, after 11 verified actions
+  patch        strip the injected instruction from the fetched briefing
+```
+
+Given a briefing with nothing hidden in it, the model returned a summary instead of a plan to post
+anywhere, and the forked run contains no egress denial because nothing tried to leave. That is the
+whole argument of the project, run rather than described.
+
+**Five defects, and not one was visible from the code.** This is the third week running that has been
+true, and it is the reason the roadmap does not tick an acceptance from a review.
+
+**1. The one that matters: a real credential reached the log.** The recorded request carried
+`Authorization: Bearer demo-not-a-real-key-01J8X` — the operator's actual value, in an artifact
+designed to be published. The broker was working perfectly; the agent had simply been handed the real
+key to begin with.
+
+`buildEnv` appended `MODEL_API_KEY=<placeholder>` to `os.Environ()`, which already held
+`MODEL_API_KEY=<real>` because the demo runs `MODEL_API_KEY=... hark run`. Appending reads as
+equivalent to replacing and is not: CPython's `convertenviron` keeps the **first** occurrence of a
+duplicated name. The placeholder was never seen by anything.
+
+Two lessons, and the second is the sharper one. Variables are now removed before being set — the same
+bug applied to `SSL_CERT_FILE`, where an inherited value would have quietly beaten this run's CA. And
+`Broker.ContainsSecret`, whose doc comment reads *"the assertion the recorder runs on anything about
+to be written to the log"*, was called by nothing at all. It is wired in now: an event carrying a real
+value is refused and the run is failed rather than sealed. A bundle with a hole beats a bundle that
+cannot be shared.
+
+A defence that exists only in a comment is not a defence. It fired on its first real outing.
+
+**2. Landlock could not open a path the agent was granted.** `landlock: opening
+"/home/azureuser/harkv01/shim" for a rule: permission denied`, as root.
+
+The agent runs as uid 0 with every capability dropped, which is the design — and it means
+`CAP_DAC_OVERRIDE` is gone, so ordinary permissions apply to it like anyone else. `/home/azureuser`
+is mode 0750. `O_PATH` needs no permission on the file itself, but *reaching* it still needs search
+permission on every parent.
+
+The init child now opens its rule handles before the capability drop and builds the ruleset from
+them, so registration no longer depends on privilege the process deliberately gave up. And `Launch`
+refuses up front, naming the directory that blocks the agent, because Landlock only ever removes
+access and can never grant past DAC — a policy naming such a path is not wrong so much as
+unachievable.
+
+**3. Replay came out one event short.** The recording held a `SecretInjected` the replay did not,
+because injection sat behind the playback branch and a replayed run never reaches it.
+
+This is W3's lesson on a second channel. Then it was the shim serving clock values without recording
+them; here it is the broker. **Whatever the harness serves, it must also record, or the replay reports
+a divergence it caused itself.** Substitution now happens in both modes — the replayed copy is
+discarded immediately, but the decision is genuinely re-derived — and the digest stops comparing
+`ValueHash`, which a replay deliberately has no way to reproduce.
+
+**4. A data race the race detector found on its first Linux run**, between `Serve` writing the shim's
+listener and `Close` reading it. Not only a test artifact: a run that fails early runs its deferred
+`Close` while `Serve` is still starting. The exported `Live` field invited the same mistake and is now
+a method behind the mutex. Documentation is not a lock.
+
+**5. `awk ... {exit}` under `set -o pipefail`.** Twice — in the demo and again in the benchmark
+script. Exiting at the first match closes the pipe, `inspect` dies of SIGPIPE, and pipefail turns a
+successful replay into a failed script one line later. The benchmark version was worse: `elapsed()`
+discards output by design, so five failed runs produced five plausible millisecond figures and a
+ratio computed from them. It now verifies and replays once, loudly, before believing any number.
+
+**The numbers.** Mediation costs **0.18 ms at p50** against a 5 ms target — invisible beside a model
+call. A run that waited 0.9 s on its model replays in **145 ms**, and the useful form of that is not
+the 7.3x ratio but the floor: *a replay costs what starting the agent costs*, almost all of it
+namespace setup and interpreter start. Verifying 100k events takes 276 ms at 188 MB/s; proving one
+event costs 448 bytes and 14 hashes. Full tables and the box's specification are in
+[benchmarking.md](benchmarking.md).
+
+**Verified.** Full suite green on kernel 6.17, race detector included, launcher suite green as root,
+demo end to end from a clean `git clone`.
+
+**Next.** Anchor a run in the public log for real and check inclusion from a second machine, record
+the GIF, verify the related-work table W0 still owes, and tag v0.1.0.
+
+---
+
 ## 2026-08-17 — W4 built: the fork, the anchor, the report, the incident
 
 Everything v0.1 needs is implemented and green off the box. **None of it has been run on the box**,
