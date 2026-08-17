@@ -44,6 +44,8 @@ func main() {
 		err = cmdInspect(os.Args[2:])
 	case "prove":
 		err = cmdProve(os.Args[2:])
+	case "report":
+		err = cmdReport(os.Args[2:])
 	case "keygen":
 		err = cmdKeygen(os.Args[2:])
 	case "synth":
@@ -83,6 +85,7 @@ bundle commands
            check a bundle end to end, and its transparency anchor
   inspect  <bundle>            list the events in a bundle
   prove    <bundle> -seq N     emit an inclusion proof for one event
+  report   [-o FILE] <bundle>  render the run as one self-contained HTML file
   synth    <bundle>            write a synthetic bundle, for testing
   keygen   -out <path>         create an Ed25519 signing key
 
