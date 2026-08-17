@@ -145,6 +145,29 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 	}
 	m.record(logfmt.KindLLMRequest, recorded)
 
+	// Credential substitution happens in both modes, and is recorded in both.
+	//
+	// A replayed run sends nothing upstream, so the injected copy is discarded
+	// immediately -- but the substitution is a decision of the boundary,
+	// re-derived here from the same policy and the same request, and a replayed
+	// bundle that omitted it would be missing an event its recording contains.
+	// That is W3's lesson applied to a second channel: whatever the harness
+	// serves, it must also record, or every replay reports a divergence it
+	// caused itself.
+	outHeader, outBody := req.Header, body
+	if m.cfg.Broker != nil {
+		h, b, injections, err := m.cfg.Broker.Inject(host, req.Header, body)
+		if err != nil {
+			return err
+		}
+		outHeader, outBody = h, b
+		for _, in := range injections {
+			m.record(logfmt.KindSecretInjected, logfmt.SecretInjected{
+				Ref: in.Ref, Placeholder: in.Placeholder, Host: host, ValueHash: in.ValueHash,
+			})
+		}
+	}
+
 	// Playback answers from the recording and never dials out.
 	//
 	// Asked per exchange rather than once per connection, because a fork changes
@@ -175,20 +198,6 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 			Error: "connecting to " + host + ": " + err.Error(), Exchange: exchange,
 		})
 		return err
-	}
-
-	outHeader, outBody := req.Header, body
-	if m.cfg.Broker != nil {
-		h, b, injections, err := m.cfg.Broker.Inject(host, req.Header, body)
-		if err != nil {
-			return err
-		}
-		outHeader, outBody = h, b
-		for _, in := range injections {
-			m.record(logfmt.KindSecretInjected, logfmt.SecretInjected{
-				Ref: in.Ref, Placeholder: in.Placeholder, Host: host, ValueHash: in.ValueHash,
-			})
-		}
 	}
 
 	out := req.Clone(req.Context())

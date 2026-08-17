@@ -186,6 +186,12 @@ func normalise(kind logfmt.Kind, payload []byte) ([]byte, string, bool) {
 			return payload, "unreadable SecretInjected", true
 		}
 		v.Placeholder = scrub(v.Placeholder)
+		// The hash is of the real credential, which a replay deliberately does
+		// not have -- it runs with dummy values precisely so it needs none. What
+		// remains compared is that the same credential reference was substituted
+		// for the same host, which is the part of the event that describes what
+		// the boundary did.
+		v.ValueHash = nil
 		return remarshal(v), "inject " + v.Ref + " -> " + v.Host, true
 
 	case logfmt.KindClockRead:
