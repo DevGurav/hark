@@ -4,6 +4,113 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-17 — W4 built: the fork, the anchor, the report, the incident
+
+Everything v0.1 needs is implemented and green off the box. **None of it has been run on the box**,
+which is the honest headline: W2 and W3 each found real defects the moment they ran, and there is no
+reason to think this week is different. The roadmap ticks the code and leaves every acceptance
+unticked.
+
+**The fork, and what it is allowed to claim.** `hark fork -at N -patch p.json` re-executes an agent
+against its own recording, checks the prefix action by action as it happens, changes one response at
+the branch point, and goes live. The output is fixed wording:
+
+```text
+FORKED  provably identical prefix, live suffix
+```
+
+There is no process checkpoint, so a fork cannot resume at N -- it has to arrive there. That raised
+the question the week turned on: if the prefix is re-run rather than resumed, what makes it the same
+prefix? The answer is the gate, driven by the child's own event stream and folding each event into
+the same digest `hark replay` compares. A divergence kills the agent at the action that caused it.
+Continuing would produce a bundle carrying a `ParentRoot` it has no claim to, and someone would
+eventually quote it. ADR-0008.
+
+Three refusals rather than one, because a fork that *nearly* happened is the case most likely to be
+misread: `FORK-DIVERGED`, `FORK-INCOMPLETE`, and `FORK-UNPATCHED` -- the branch point was reached but
+no request followed it, so the patch never applied and the run is not the counterfactual it would
+otherwise claim to be. In the same spirit, a patch that matches nothing is an error. The alternative
+is a fork that runs, comes out clean, and lets the operator conclude the change was harmless when it
+was never made.
+
+**Two structural changes fell out of it.** The mediator now decides playback per exchange rather than
+per connection, and dials upstream lazily -- a fork hands over mid-run and the agent is under no
+obligation to open a fresh connection at that moment. A replayed run still opens no outbound
+connection at all, now because nothing ever asks for one rather than because a branch was skipped.
+And the shim gained a fork mode: the supervisor decides *when* to go live, because it is the side
+that knows how far the verified prefix got, but the value is produced in the agent's process, because
+that is the only side that can make a `uuid.UUID` the agent's own module will accept. The reply says
+`live` and the shim draws and reports back.
+
+**Anchoring, and the trap in it.** The obvious Rekor type is `hashedrekord`, which carries a digest.
+It cannot work here: Ed25519 signs the whole message, so a log handed a digest has nothing to verify
+against. The submission is a `rekord` over the signed-tree-head bytes -- small, public, and exactly
+the commitment that matters.
+
+`hark verify` recomputes the log's root from the inclusion proof rather than believing the API. That
+is RFC 6962 arithmetic, SHA-256 with 0x00/0x01 prefixes, deliberately not reusing `internal/hashchain`
+-- it is somebody else's tree, and BLAKE3 there would be correct hashes of the wrong thing. Checked
+against a reference tree built by the recursive definition from the RFC, for every leaf of every size
+up to 33.
+
+Verification now distinguishes three outcomes where a lesser tool would have two: inclusion verified,
+the log holds no such entry (a failed claim, exit 1), and the log could not be reached (nothing
+established either way, exit unchanged). Anchoring itself is never fatal -- a log that is down must
+not mean a run cannot be recorded.
+
+**A seam that needed justifying.** The demo has to run with no key, no cost and no network, and the
+benchmarks must not measure a hosted endpoint. Both need the mediator to dial somewhere other than
+the host the agent asked for -- a testing seam pointed straight at the project's central claim. A
+bundle whose events name `model.example` while the mediator spoke to loopback would be internally
+consistent and untrue, and every check `hark verify` performs would pass.
+
+So `-upstream HOST=ADDR` is recorded in `RunStart`, the redirected host still has to be in the
+allowlist, and TLS still verifies the name the agent asked for against a CA that has to be named
+explicitly. Skipping verification for redirected dials would have been one line and would have
+silently weakened every connection an operator did not think of as a stub. `hark replay` carries the
+recorded value through rather than rebuilding it, or every replay of a stub-recorded run would
+diverge at action 0. ADR-0009.
+
+**The report.** One HTML file, no server, no framework, no JavaScript, no external request. The
+escaping is the part worth being deliberate about: a recorded body is attacker-controlled by
+construction, so a page that interpolated it raw would turn the evidence into a way to attack whoever
+reviews it. `html/template` escapes by context and a test asserts it. The footer says the page is not
+a verification, because a picture of a verification is not one.
+
+**The incident.** A naive agent, a briefing with an instruction hidden in it, a stub model that
+follows instructions in its context -- the one model behaviour the demo depends on, and one every
+current model has. The agent is deliberately typical: no eval, no shell, no disabled check. The only
+thing it does wrong is believe what it reads, which is the whole of prompt injection and the reason
+containment cannot live inside the agent.
+
+The fork branches at the *page fetch*, not at the completion. Patching the model's reply would have
+been easier and much weaker: it patches the conclusion rather than the cause. Forking at the fetch
+asks whether the page was responsible.
+
+**Benchmarks: harnesses, not numbers.** Four of the five run from a documented command. The replay
+ratio gives the stub a 0.9s delay per completion, because replay's whole advantage is not waiting on
+a model and measuring against a stub that answers instantly would leave nothing to skip -- it would
+understate the figure most likely to be quoted. No number is published until the box produces it; a
+plausible placeholder in a benchmarking document is worse than a blank.
+
+Two things learned in passing. Go's monotonic clock on Windows advances in millisecond steps, so the
+first percentile run reported a p50 of 0 against a mean of 100µs -- these belong on Linux. And
+Windows Defender began refusing to link `cmd/hark` part-way through the session, so the CLI was never
+executed here; the Linux cross-build and `go vet` are clean, and the package tests all pass.
+
+**Verified.** `go build`, `go vet` and `go test` clean across the tree on Windows; `GOOS=linux`
+cross-build and vet clean. New tests: the fork gate and patches, the Rekor arithmetic against a
+reference tree, the report's self-containment and escaping, the shim's fork handover from both sides,
+and the mediator's mid-connection handover.
+
+**Not verified.** Everything that needs the box: `demo/run.sh` end to end, a real anchor, the
+benchmark figures, and replay on a second machine.
+
+**Next.** Run the demo on the box, fix what it finds, fill in the numbers, record the GIF, verify the
+related-work table left over from W0, and tag v0.1.0.
+
+---
+
 ## 2026-08-16 — W3 closes: REPLAY-EQUAL
 
 ```text

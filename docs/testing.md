@@ -10,8 +10,9 @@ go test ./... -bench=. -run='^$'
 Green means every test passes and `go vet ./...` is clean. There is no coverage threshold; coverage
 percentage is a poor proxy for whether the properties that matter are pinned down.
 
-Current state: 143 tests, 193 including subtests, across 13 packages, plus three fuzz targets.
-The launcher's Linux-only tests are additional and run separately, below.
+Current state: 16 packages with tests, plus three fuzz targets. The launcher's Linux-only tests are
+additional and run separately, below, and the benchmarks are described in
+[benchmarking.md](benchmarking.md).
 
 The launcher's tests need root and a Linux kernel. They skip otherwise, so the suite still runs
 unprivileged and on a non-Linux machine:
@@ -181,3 +182,38 @@ the agent saw something it never did.
 The mediator's playback tests cover the plumbing rather than the matching: no outbound dial (proved
 with a dialer that always fails), chunk boundaries preserved, and the replayed run recording its own
 correlated events so its bundle is itself replayable.
+
+**`internal/fork` — the gate, against a synthetic recording.**
+The prefix comparison, the branch point opening, the patch being claimable exactly once, and the
+divergence naming both sides. The patch tests are weighted toward refusal for one reason:
+`TestPatchThatMatchesNothingIsAnError` covers the worst outcome available here, where the fork runs,
+the suffix comes out clean, and the operator concludes the change was harmless when it was never
+made.
+
+The end-to-end fork — a real agent, re-executed against a real recording — is a demo-level test and
+lives in `demo/run.sh`, because it needs a namespace.
+
+**`internal/rekor` — the log's arithmetic, checked against an independent tree.**
+`TestInclusionProofFoldsBackToTheRoot` builds an RFC 6962 tree by the recursive definition straight
+from the RFC and proves every leaf of every size up to 33. The awkward shapes — a lone rightmost
+leaf, a tree one past a power of two — are where an off-by-one in the border count hides, so they are
+covered rather than sampled. This is the same reasoning as `internal/mmr`, applied to somebody else's
+tree.
+
+The stub log reproduces Rekor's canonicalisation rather than echoing the submission back, because
+`Covers` checks the entry against the tree head and checking against the submitted form would pass
+over a log that stored something else.
+
+**`internal/report` — the two properties a static file has to hold.**
+That it makes no external request, asserted by searching the output for `<script>`, `<link>`, `src=`,
+`@import` and any `href` that is not same-document. And that recorded content is escaped: a bundle
+body is attacker-controlled by construction — it is the traffic of an agent that may have been
+prompt-injected — so a page that interpolated it raw would turn the evidence into a way to attack
+whoever reviews it.
+
+**`internal/shim` — the fork handover, from both sides.**
+`TestForkServesTheRecordingUntilTheGateOpens` drives the socket protocol directly, so it runs
+everywhere; `TestForkAgentDrawsLiveValues` drives a real interpreter through it and needs Linux. The
+property both check is that the recorded value comes back below the branch point, a real one is drawn
+above it, and both are recorded — a fork's suffix is a recording in its own right, and its prefix has
+to replay again.
