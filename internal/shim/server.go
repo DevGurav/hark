@@ -54,15 +54,15 @@ type Server struct {
 	mode     Mode
 	recorder Recorder
 
-	// Live reports whether a forked run has passed its fork point. Set before
-	// Serve when the mode is ModeFork; ignored otherwise. Nil means the fork
-	// point is never reached, which serves the whole recording.
-	Live func() bool
-
 	mu sync.Mutex
 	// queues holds, per source, the values recorded in order. Replay consumes
 	// from the front.
 	queues map[string][]json.RawMessage
+	// live reports whether a forked run has passed its fork point. Guarded by
+	// mu rather than exported, because it is set by one goroutine and read by
+	// every connection handler -- an exported field would be a data race for
+	// any caller that set it a moment too late.
+	live func() bool
 
 	ln        net.Listener
 	closeOnce sync.Once
@@ -97,6 +97,15 @@ func New(dir string, mode Mode, rec Recorder, recorded Values) (*Server, error) 
 		s.queues[src] = append([]json.RawMessage(nil), vals...)
 	}
 	return s, nil
+}
+
+// SetLive supplies the predicate that tells a forked run it has passed its fork
+// point. Meaningful only in ModeFork; nil means the fork point is never
+// reached, which serves the whole recording.
+func (s *Server) SetLive(f func() bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.live = f
 }
 
 // Path is the socket the agent should connect to.
@@ -234,6 +243,9 @@ func (s *Server) record(req request) reply {
 // different path. Inventing a value here would let replay report success over a
 // run that did something else.
 func (s *Server) serve(req request) reply {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	switch s.mode {
 	case ModeReplay:
 	case ModeFork:
@@ -241,15 +253,15 @@ func (s *Server) serve(req request) reply {
 		// this run does, so the agent draws for real and reports the value back.
 		// The remaining recorded values are left in the queue: they belong to the
 		// run that was, not to the one being explored.
-		if s.Live != nil && s.Live() {
+		//
+		// The gate takes its own lock inside this one. Nothing anywhere takes
+		// this lock while holding the gate's, so the order cannot invert.
+		if s.live != nil && s.live() {
 			return reply{OK: true, Live: true}
 		}
 	default:
 		return reply{Err: "not replaying"}
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	queue := s.queues[req.Src]
 	if len(queue) == 0 {

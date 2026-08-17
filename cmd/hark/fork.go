@@ -213,7 +213,7 @@ func cmdFork(args []string) error {
 	if err != nil {
 		return err
 	}
-	shimServer.Live = gate.Live
+	shimServer.SetLive(gate.Live)
 	go func() { _ = shimServer.Serve() }()
 	defer shimServer.Close()
 

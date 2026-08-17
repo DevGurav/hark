@@ -299,7 +299,7 @@ func TestForkServesTheRecordingUntilTheGateOpens(t *testing.T) {
 	s := start(t, ModeFork, rec, Values{
 		"random.random": {json.RawMessage("0.25"), json.RawMessage("0.75")},
 	})
-	s.Live = live.Load
+	s.SetLive(live.Load)
 
 	c := dialShim(t, s)
 
@@ -382,7 +382,7 @@ func TestForkAgentDrawsLiveValues(t *testing.T) {
 	// count reaching the fork point; here counting the reads is equivalent and
 	// keeps the test to one moving part.
 	reads := 0
-	s.Live = func() bool { reads++; return reads > 1 }
+	s.SetLive(func() bool { reads++; return reads > 1 })
 
 	out, err := runAgent(t, s, `
 import random
