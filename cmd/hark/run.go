@@ -45,6 +45,9 @@ func cmdRun(args []string) error {
 	workDir := fs.String("workdir", "", "working directory for the agent")
 	var writePaths stringList
 	fs.Var(&writePaths, "write", "grant the agent write access to this path (repeatable)")
+	var up upstreams
+	fs.Var(&up, "upstream", "dial HOST=ADDR instead of HOST:443 (repeatable; recorded in the bundle)")
+	upstreamCA := fs.String("upstream-ca", "", "the only root a redirected upstream may present")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -56,6 +59,11 @@ func cmdRun(args []string) error {
 	}
 
 	pol, rawPolicy, err := policy.Load(*policyPath)
+	if err != nil {
+		return err
+	}
+
+	dialUpstream, err := up.dialer(*upstreamCA)
 	if err != nil {
 		return err
 	}
@@ -128,6 +136,7 @@ func cmdRun(args []string) error {
 		WorkingDir:  *workDir,
 		ProviderSet: pol.AllowHosts,
 		Argv:        fs.Args(),
+		Upstreams:   up.list(),
 	})
 	rec.append(logfmt.KindPolicyLoaded, logfmt.PolicyLoaded{
 		Source:     *policyPath,
@@ -182,7 +191,7 @@ func cmdRun(args []string) error {
 			m, err := mediator.New(mediator.Config{
 				Policy: pol, Broker: br, Recorder: rec,
 				BindIP: n.MediatorIP, DNSPort: 53, TLSPort: 443,
-				RunID: id, Started: medReady,
+				RunID: id, Started: medReady, DialUpstream: dialUpstream,
 			})
 			if err != nil {
 				return err

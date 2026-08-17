@@ -31,6 +31,15 @@ type RunStart struct {
 	// again, and an artifact that cannot be acted on without out-of-band
 	// knowledge is a weaker artifact.
 	Argv []string `cbor:"8,keyasint"`
+
+	// Upstreams lists the "host=addr" redirections in force, sorted. Empty for
+	// an ordinary run.
+	//
+	// A bundle that says it reached api.example while the mediator dialled a
+	// stub on loopback would be a lie of exactly the kind this format exists to
+	// prevent, so the redirection is part of the run's starting conditions
+	// rather than a detail of how it was invoked.
+	Upstreams []string `cbor:"10,keyasint"`
 }
 
 // PolicyLoaded records the effective policy in full, not just its hash, so a

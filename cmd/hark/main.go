@@ -52,7 +52,9 @@ func main() {
 		err = cmdRun(os.Args[2:])
 	case "replay":
 		err = cmdReplay(os.Args[2:])
-	case "fork", "bisect":
+	case "fork":
+		err = cmdFork(os.Args[2:])
+	case "bisect":
 		fmt.Fprintf(os.Stderr, "hark %s: not implemented yet -- see docs/roadmap.md\n", os.Args[1])
 		os.Exit(2)
 	case "version", "--version", "-v":
@@ -90,7 +92,10 @@ runtime commands
   replay   [-o BUNDLE] [-keep] <bundle>
            re-run a recording against itself and compare the actions
 
-  fork, bisect                not yet implemented
+  fork     -at N [-patch FILE] [-o BUNDLE] [-key FILE] <bundle>
+           replay a verified prefix, change one response, go live from there
+
+  bisect                       not yet implemented
 
   version                      print the version
   help                         print this message

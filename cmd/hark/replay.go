@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -117,6 +118,11 @@ func cmdReplay(args []string) error {
 	rec.append(logfmt.KindRunStart, logfmt.RunStart{
 		RunID: id, StartedAt: time.Now().UnixNano(), Recorder: Version,
 		WorkingDir: plan.workDir, ProviderSet: pol.AllowHosts, Argv: plan.argv,
+		// Carried through rather than rebuilt. A replay dials nothing, so the
+		// redirections cannot apply to it -- but they are part of the run's
+		// starting conditions, and dropping them here would report a divergence
+		// on every replay of a run that used one.
+		Upstreams: plan.upstreams,
 	})
 	// Re-emit the recorded event verbatim rather than rebuilding one. A
 	// reconstruction differs in fields that describe where the policy came from
@@ -256,13 +262,24 @@ func cmdReplay(args []string) error {
 type plan struct {
 	argv        []string
 	workDir     string
+	upstreams   []string
 	policyRaw   []byte
 	policyEvent logfmt.PolicyLoaded
 	shimValues  shim.Values
 }
 
 // loadPlan reads the recording for everything needed to reproduce the run.
-func loadPlan(path string) (*plan, error) {
+func loadPlan(path string) (*plan, error) { return loadPlanUpTo(path, math.MaxUint64) }
+
+// loadPlanUpTo is loadPlan with the clock and RNG history stopped at a sequence
+// number.
+//
+// A fork wants only the values recorded before its branch point: the ones after
+// it belong to the run that was, and serving them to the counterfactual would
+// mean a run whose randomness came from a future it is no longer heading for.
+// The framing events -- argv, the policy -- are read from the whole file
+// regardless, since they describe the run rather than its history.
+func loadPlanUpTo(path string, upTo uint64) (*plan, error) {
 	r, err := bundle.Open(path)
 	if err != nil {
 		return nil, err
@@ -281,12 +298,15 @@ func loadPlan(path string) (*plan, error) {
 		if err != nil {
 			return nil, err
 		}
+		if f.Seq >= upTo && (f.Kind == logfmt.KindClockRead || f.Kind == logfmt.KindRandomRead) {
+			continue
+		}
 
 		switch f.Kind {
 		case logfmt.KindRunStart:
 			var v logfmt.RunStart
 			if logfmt.Unmarshal(f.Payload, &v) == nil {
-				p.argv, p.workDir = v.Argv, v.WorkingDir
+				p.argv, p.workDir, p.upstreams = v.Argv, v.WorkingDir, v.Upstreams
 			}
 		case logfmt.KindPolicyLoaded:
 			var v logfmt.PolicyLoaded
