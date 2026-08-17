@@ -8,6 +8,7 @@ import (
 	"github.com/DevGurav/hark/internal/hashchain"
 	"github.com/DevGurav/hark/internal/logfmt"
 	"github.com/DevGurav/hark/internal/mmr"
+	"github.com/DevGurav/hark/internal/signer"
 )
 
 // Status is the overall outcome of verifying a bundle.
@@ -41,6 +42,12 @@ type Result struct {
 	PublicKey   []byte
 	RekorEntry  string
 	RekorIndex  int64
+
+	// STH is the sealed tree head itself, kept so a caller can check it against
+	// what a transparency log holds. The log stores the signed bytes, and
+	// rebuilding them from the fields above would be a second definition of what
+	// was signed.
+	STH *signer.STH
 
 	// FirstBadSeq is the sequence number of the first frame that failed, and
 	// Problem describes it. Reporting where a log diverges is more useful than a
@@ -158,6 +165,7 @@ func Verify(path string) (*Result, error) {
 
 	if foot.STH != nil {
 		res.Signed = true
+		res.STH = foot.STH
 		res.PublicKey = foot.STH.PublicKey
 		if err := foot.STH.Verify(); err != nil {
 			res.Status = StatusBroken

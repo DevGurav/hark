@@ -18,6 +18,7 @@ import (
 	"github.com/DevGurav/hark/internal/logfmt"
 	"github.com/DevGurav/hark/internal/mediator"
 	"github.com/DevGurav/hark/internal/policy"
+	"github.com/DevGurav/hark/internal/rekor"
 	"github.com/DevGurav/hark/internal/runid"
 	"github.com/DevGurav/hark/internal/shim"
 	"github.com/DevGurav/hark/internal/signer"
@@ -42,6 +43,8 @@ func cmdRun(args []string) error {
 	policyPath := fs.String("policy", "", "policy file (required)")
 	out := fs.String("o", "", "bundle to write (default: <runid>.hark)")
 	keyPath := fs.String("key", "", "sign the sealed root with this key")
+	anchor := fs.Bool("anchor", false, "anchor the sealed root in a transparency log (needs -key)")
+	rekorURL := fs.String("rekor", rekor.PublicLog, "transparency log to anchor in")
 	workDir := fs.String("workdir", "", "working directory for the agent")
 	var writePaths stringList
 	fs.Var(&writePaths, "write", "grant the agent write access to this path (repeatable)")
@@ -90,6 +93,11 @@ func cmdRun(args []string) error {
 		if key, err = signer.LoadKey(*keyPath); err != nil {
 			return err
 		}
+	}
+	if *anchor && key == nil {
+		// There would be nothing to anchor: what a transparency log holds is a
+		// signed tree head, and an unsigned root is not one.
+		return errors.New("hark run: -anchor commits a signed tree head, so it needs -key")
 	}
 
 	br, err := broker.New(id, values, pol)
@@ -254,7 +262,10 @@ func cmdRun(args []string) error {
 		EndedAt: time.Now().UnixNano(), ExitCode: code, Reason: reason,
 	})
 
-	foot, err := w.Seal(key, time.Now().UnixNano(), "", 0)
+	signedAt := time.Now().UnixNano()
+	entry, index := anchorSeal(key, *anchor, *rekorURL, id, w, signedAt)
+
+	foot, err := w.Seal(key, signedAt, entry, index)
 	if err != nil {
 		return err
 	}
@@ -263,6 +274,9 @@ func cmdRun(args []string) error {
 	fmt.Fprintf(os.Stderr, "\nhark: wrote %s\n", bundlePath)
 	fmt.Fprintf(os.Stderr, "  events %d\n", foot.LeafCount)
 	fmt.Fprintf(os.Stderr, "  root   %x\n", foot.Root)
+	if entry != "" {
+		fmt.Fprintf(os.Stderr, "  anchor %s (index %d)\n", entry, index)
+	}
 	if medErr != nil {
 		fmt.Fprintf(os.Stderr, "  mediator: %v\n", medErr)
 	}
@@ -272,6 +286,37 @@ func cmdRun(args []string) error {
 		os.Exit(code)
 	}
 	return nil
+}
+
+// anchorSeal submits the tree head about to be sealed, and returns the entry
+// reference to store in the footer.
+//
+// The signature is produced here and again inside Seal. Ed25519 is
+// deterministic and the inputs are identical, so both are the same signature --
+// which is what lets the anchor be obtained before the footer that has to carry
+// it.
+//
+// Every failure path is non-fatal and says what happened. Rekor being down must
+// never mean a run cannot be recorded: the bundle is already complete and
+// internally verifiable by this point, and the anchor is the part that adds
+// non-equivocation on top.
+func anchorSeal(key *signer.Key, want bool, logURL, runID string, w *bundle.Writer, signedAt int64) (string, int64) {
+	if !want || key == nil {
+		return "", 0
+	}
+
+	sth := key.Sign(runID, w.LeafCount(), w.Root(), signedAt)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	entry, err := rekor.New(logURL).Anchor(ctx, sth)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hark: not anchored: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  the bundle is sealed and verifiable; it simply carries no public commitment")
+		return "", 0
+	}
+	return entry.UUID, entry.LogIndex
 }
 
 // buildEnv assembles the agent's environment: the host's, plus placeholder

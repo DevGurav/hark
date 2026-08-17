@@ -1,32 +1,39 @@
 package main
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/DevGurav/hark/internal/bundle"
 	"github.com/DevGurav/hark/internal/logfmt"
+	"github.com/DevGurav/hark/internal/rekor"
 )
 
 func cmdVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ExitOnError)
 	quiet := fs.Bool("quiet", false, "print nothing; communicate through the exit status alone")
 	pin := fs.String("key", "", "require the tree head to be signed by this hex public key")
+	offline := fs.Bool("offline", false, "skip the transparency log; check only what is in the file")
+	rekorURL := fs.String("rekor", rekor.PublicLog, "transparency log to check inclusion against")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: hark verify [-quiet] [-key HEX] <bundle>")
+		return errors.New("usage: hark verify [-quiet] [-offline] [-key HEX] <bundle>")
 	}
 
 	res, err := bundle.Verify(fs.Arg(0))
 	if err != nil {
 		return err
 	}
+
+	anchor := checkAnchor(res, *offline, *rekorURL)
 
 	// A pinned key turns the signature check from "someone signed this" into
 	// "the party I expect signed this". Without it a valid signature says very
@@ -41,13 +48,18 @@ func cmdVerify(args []string) error {
 	}
 
 	if !*quiet {
-		printVerify(res, *pin != "", pinnedOK)
+		printVerify(res, *pin != "", pinnedOK, anchor)
 	}
 
 	switch {
 	case res.Status == bundle.StatusBroken:
 		os.Exit(1)
 	case !pinnedOK:
+		os.Exit(1)
+	case anchor.rejected:
+		// The bundle names an entry the log does not vouch for. That is a claim
+		// the bundle makes and fails, so it fails verification -- unlike a log
+		// that could not be reached, which establishes nothing either way.
 		os.Exit(1)
 	case res.Status == bundle.StatusTruncated:
 		// A truncated bundle is a real state, not a verification failure, but a
@@ -58,7 +70,57 @@ func cmdVerify(args []string) error {
 	return nil
 }
 
-func printVerify(res *bundle.Result, pinned, pinnedOK bool) {
+// anchorCheck is what the transparency log had to say, if it was asked.
+type anchorCheck struct {
+	line     string
+	rejected bool
+}
+
+// checkAnchor fetches the inclusion proof for a bundle that carries an entry.
+//
+// Three outcomes, deliberately distinct, because collapsing them is how a
+// verifier ends up overstating what it knows:
+//
+//	inclusion verified   the commitment is public and cannot now be changed
+//	REJECTED             the log does not vouch for what the bundle claims
+//	unreachable          nothing established either way; the local checks stand
+func checkAnchor(res *bundle.Result, offline bool, logURL string) anchorCheck {
+	switch {
+	case res.RekorEntry == "":
+		return anchorCheck{line: "not anchored -- integrity only, no non-equivocation"}
+	case offline:
+		return anchorCheck{line: fmt.Sprintf("%s (index %d), not checked (-offline)", res.RekorEntry, res.RekorIndex)}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	entry, err := rekor.New(logURL).Fetch(ctx, res.RekorEntry)
+	if errors.Is(err, rekor.ErrNotFound) {
+		return anchorCheck{rejected: true, line: fmt.Sprintf("REJECTED -- %s holds no entry %s", logURL, res.RekorEntry)}
+	}
+	if err != nil {
+		return anchorCheck{line: fmt.Sprintf("%s (index %d), log unreachable: %v", res.RekorEntry, res.RekorIndex, err)}
+	}
+
+	// The entry has to be the log's record of *this* tree head. Without that
+	// check, "the log holds entry X" and "entry X is this run" are two separate
+	// claims with nothing joining them.
+	if res.STH == nil {
+		return anchorCheck{rejected: true, line: "REJECTED -- anchored but unsigned: nothing ties the entry to this bundle"}
+	}
+	if err := entry.Covers(res.STH); err != nil {
+		return anchorCheck{rejected: true, line: "REJECTED -- " + err.Error()}
+	}
+	if err := entry.VerifyInclusion(); err != nil {
+		return anchorCheck{rejected: true, line: "REJECTED -- " + err.Error()}
+	}
+
+	return anchorCheck{line: fmt.Sprintf("inclusion verified, index %d of %d (%s)",
+		entry.LogIndex, entry.Proof.TreeSize, logURL)}
+}
+
+func printVerify(res *bundle.Result, pinned, pinnedOK bool, anchor anchorCheck) {
 	// A pin failure is a verification failure even though every internal check
 	// passed, so it has to change the headline. Printing VERIFIED above a line
 	// that says the key was wrong is how a reader ends up trusting the wrong
@@ -99,11 +161,7 @@ func printVerify(res *bundle.Result, pinned, pinnedOK bool) {
 		}
 	}
 
-	if res.RekorEntry != "" {
-		fmt.Printf("  transparency %s (index %d)\n", res.RekorEntry, res.RekorIndex)
-	} else {
-		fmt.Println("  transparency not anchored -- integrity only, no non-equivocation")
-	}
+	fmt.Printf("  transparency %s\n", anchor.line)
 
 	if res.Problem != "" {
 		if res.FirstBadSeq >= 0 {

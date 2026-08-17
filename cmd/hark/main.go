@@ -79,14 +79,15 @@ func usage() {
 usage: hark <command> [arguments]
 
 bundle commands
-  verify   <bundle>            check a bundle end to end
+  verify   [-offline] [-key HEX] <bundle>
+           check a bundle end to end, and its transparency anchor
   inspect  <bundle>            list the events in a bundle
   prove    <bundle> -seq N     emit an inclusion proof for one event
   synth    <bundle>            write a synthetic bundle, for testing
   keygen   -out <path>         create an Ed25519 signing key
 
 runtime commands
-  run      -policy FILE [-o BUNDLE] [-key FILE] [-write DIR] -- COMMAND...
+  run      -policy FILE [-o BUNDLE] [-key FILE] [-anchor] [-write DIR] -- COMMAND...
            run COMMAND inside a recorded, contained namespace (Linux, root)
 
   replay   [-o BUNDLE] [-keep] <bundle>

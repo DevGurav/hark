@@ -115,6 +115,21 @@ func (s *STH) Verify() error {
 	return nil
 }
 
+// SignedBytes returns the exact byte string the signature covers.
+//
+// A transparency log needs the message, not the root: an Ed25519 signature is
+// over the whole message and cannot be checked against a digest of it. Exposing
+// this rather than reconstructing it in the anchoring code keeps one definition
+// of what was signed -- two would drift, and the failure would be a log entry
+// that verifies against nothing.
+func (s *STH) SignedBytes() ([]byte, error) {
+	root, err := s.RootHash()
+	if err != nil {
+		return nil, err
+	}
+	return signingBytes(s.RunID, s.LeafCount, root, s.SignedAt), nil
+}
+
 // RootHash returns the STH's root as a fixed-size hash.
 func (s *STH) RootHash() (hashchain.Hash, error) {
 	var h hashchain.Hash

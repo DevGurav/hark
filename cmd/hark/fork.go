@@ -19,6 +19,7 @@ import (
 	"github.com/DevGurav/hark/internal/logfmt"
 	"github.com/DevGurav/hark/internal/mediator"
 	"github.com/DevGurav/hark/internal/policy"
+	"github.com/DevGurav/hark/internal/rekor"
 	"github.com/DevGurav/hark/internal/replay"
 	"github.com/DevGurav/hark/internal/runid"
 	"github.com/DevGurav/hark/internal/shim"
@@ -42,6 +43,8 @@ func cmdFork(args []string) error {
 	patchPath := fs.String("patch", "", "JSON patch to apply to the response at the branch point")
 	out := fs.String("o", "", "write the forked run here (default: <runid>-fork.hark)")
 	keyPath := fs.String("key", "", "sign the sealed root with this key")
+	anchor := fs.Bool("anchor", false, "anchor the sealed root in a transparency log (needs -key)")
+	rekorURL := fs.String("rekor", rekor.PublicLog, "transparency log to anchor in")
 	workDir := fs.String("workdir", "", "override the recorded working directory")
 	var up upstreams
 	fs.Var(&up, "upstream", "dial HOST=ADDR instead of HOST:443 (defaults to the recording's)")
@@ -150,6 +153,9 @@ func cmdFork(args []string) error {
 		if key, err = signer.LoadKey(*keyPath); err != nil {
 			return err
 		}
+	}
+	if *anchor && key == nil {
+		return errors.New("hark fork: -anchor commits a signed tree head, so it needs -key")
 	}
 
 	br, err := broker.New(id, values, pol)
@@ -311,7 +317,10 @@ func cmdFork(args []string) error {
 		EndedAt: time.Now().UnixNano(), ExitCode: code, Reason: reason,
 	})
 
-	foot, err := w.Seal(key, time.Now().UnixNano(), "", 0)
+	signedAt := time.Now().UnixNano()
+	entry, index := anchorSeal(key, *anchor, *rekorURL, id, w, signedAt)
+
+	foot, err := w.Seal(key, signedAt, entry, index)
 	if err != nil {
 		return err
 	}
