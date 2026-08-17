@@ -92,7 +92,7 @@ if [ "${HARK_DEMO_ANCHOR:-0}" = "1" ]; then
   ANCHOR=(-anchor)
 fi
 
-rm -f incident.hark fork.hark incident.hark.html fork.hark.html
+rm -f incident.hark fork.hark incident.hark.html fork.hark.html run-*-replay.hark
 
 say "1. recording the run"
 # The agent exits non-zero: its exfiltration attempt fails, because the

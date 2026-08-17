@@ -92,7 +92,9 @@ done
 
 read -r rec_med rec_max <<<"$(printf "$rec_times" | stats)"
 read -r rep_med rep_max <<<"$(printf "$rep_times" | stats)"
-events="$("$BENCH/hark" verify -offline "$BENCH/bench.hark" | awk '/events/ {print $2; exit}')"
+# awk reads to the end: exiting at the first match closes the pipe, verify dies
+# of SIGPIPE, and pipefail turns a finished measurement into a failed script.
+events="$("$BENCH/hark" verify -offline "$BENCH/bench.hark" | awk '/events/ && !seen {print $2; seen=1}')"
 
 cat <<REPORT
 
