@@ -99,6 +99,13 @@ func cmdFork(args []string) error {
 		return err
 	}
 	if patch != nil {
+		// -at may name the position one past the last event, which is a legal
+		// fork point -- the whole run is replayed and the fork goes live at the
+		// end -- but there is no recorded response there for a patch to change.
+		if *at == uint64(len(parentDigest.Steps)) {
+			return fmt.Errorf("hark fork: -at %d is the end of the recording; "+
+				"a patch changes a recorded response, and there is none there", *at)
+		}
 		if kind := parentDigest.Steps[*at].Kind; kind != logfmt.KindLLMRequest {
 			return fmt.Errorf("hark fork: event %d is a %s; a patch changes a recorded response, "+
 				"so -at must name an LlmRequest -- `hark inspect %s` lists them", *at, kind, parentPath)
@@ -363,7 +370,7 @@ func cmdFork(args []string) error {
 	fmt.Printf("  events       %d\n", foot.LeafCount)
 
 	if code != 0 {
-		os.Exit(code)
+		return exitError{code}
 	}
 	return nil
 }

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -69,11 +70,24 @@ func main() {
 		os.Exit(2)
 	}
 
+	// An exitError has already been explained to the operator, so it sets the
+	// status without printing anything further. Commands return one instead of
+	// calling os.Exit themselves: os.Exit skips deferred calls, and the run
+	// directory holding this run's CA is removed by one of them.
+	var ee exitError
+	if errors.As(err, &ee) {
+		os.Exit(ee.code)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hark:", err)
 		os.Exit(1)
 	}
 }
+
+// exitError is a status code with no message.
+type exitError struct{ code int }
+
+func (e exitError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
 
 func usage() {
 	fmt.Fprint(os.Stderr, `hark -- deterministic record and replay for AI agents, with a proof the replay is real

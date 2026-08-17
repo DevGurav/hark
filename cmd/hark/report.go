@@ -57,6 +57,7 @@ func cmdReport(args []string) error {
 		MaxBody:   *maxBody,
 		Anchor:    anchor.line,
 		Summarise: summarise,
+		Verified:  res,
 	}); err != nil {
 		return err
 	}

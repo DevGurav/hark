@@ -253,7 +253,7 @@ func cmdReplay(args []string) error {
 	}
 
 	if !comparison.Equal {
-		os.Exit(1)
+		return exitError{1}
 	}
 	return nil
 }

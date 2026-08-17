@@ -281,9 +281,10 @@ func cmdRun(args []string) error {
 		fmt.Fprintf(os.Stderr, "  mediator: %v\n", medErr)
 	}
 
-	// The agent's exit code is the command's result, so it becomes ours.
+	// The agent's exit code is the command's result, so it becomes ours --
+	// returned rather than exited, so the deferred cleanup still runs.
 	if code != 0 {
-		os.Exit(code)
+		return exitError{code}
 	}
 	return nil
 }

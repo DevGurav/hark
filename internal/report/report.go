@@ -40,6 +40,12 @@ type Options struct {
 	// report and `hark inspect` cannot drift into describing the same event two
 	// different ways.
 	Summarise func(*logfmt.Frame) string
+
+	// Verified is what the verifier already found, when the caller has it.
+	// Verification is a full pass over the bundle -- a quarter of a second at
+	// 100k events -- and the CLI has to run it anyway to decide what to ask the
+	// transparency log. Nil means verify here.
+	Verified *bundle.Result
 }
 
 const defaultMaxBody = 4 << 10
@@ -53,9 +59,12 @@ func Render(w io.Writer, path string, opt Options) error {
 		return errors.New("report: no summariser supplied")
 	}
 
-	res, err := bundle.Verify(path)
-	if err != nil {
-		return err
+	res := opt.Verified
+	if res == nil {
+		var err error
+		if res, err = bundle.Verify(path); err != nil {
+			return err
+		}
 	}
 
 	r, err := bundle.Open(path)
