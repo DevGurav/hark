@@ -35,6 +35,17 @@ type Mode string
 const (
 	ModeRecord Mode = "record"
 	ModeReplay Mode = "replay"
+
+	// ModeFork is replay that turns into recording part-way through: recorded
+	// values up to the fork point, real ones after it.
+	//
+	// The switch has to be visible to the agent's process rather than handled
+	// entirely here, because only the agent can produce a value of the right
+	// shape. The supervisor knows a uuid was drawn; it does not know how to make
+	// one that the agent's uuid module will accept, and guessing at that is how
+	// a fork would end up feeding an agent something it could never have
+	// produced.
+	ModeFork Mode = "fork"
 )
 
 // Server accepts shim connections on a unix socket.
@@ -42,6 +53,11 @@ type Server struct {
 	path     string
 	mode     Mode
 	recorder Recorder
+
+	// Live reports whether a forked run has passed its fork point. Set before
+	// Serve when the mode is ModeFork; ignored otherwise. Nil means the fork
+	// point is never reached, which serves the whole recording.
+	Live func() bool
 
 	mu sync.Mutex
 	// queues holds, per source, the values recorded in order. Replay consumes
@@ -62,10 +78,12 @@ type Values map[string][]json.RawMessage
 // purpose: the workspace is writable by the agent, and a control channel it can
 // unlink or replace is not a control channel.
 func New(dir string, mode Mode, rec Recorder, recorded Values) (*Server, error) {
-	if mode != ModeRecord && mode != ModeReplay {
+	switch mode {
+	case ModeRecord, ModeReplay, ModeFork:
+	default:
 		return nil, fmt.Errorf("shim: unknown mode %q", mode)
 	}
-	if mode == ModeRecord && rec == nil {
+	if mode != ModeReplay && rec == nil {
 		return nil, errors.New("shim: recording needs a recorder")
 	}
 
@@ -144,6 +162,10 @@ type reply struct {
 	OK  bool            `json:"ok"`
 	Val json.RawMessage `json:"val,omitempty"`
 	Err string          `json:"err,omitempty"`
+
+	// Live tells a forked run to produce a real value and report it back with
+	// "rec". Only ever set in ModeFork.
+	Live bool `json:"live,omitempty"`
 }
 
 func (s *Server) handle(conn net.Conn) {
@@ -187,13 +209,19 @@ func (s *Server) write(w *bufio.Writer, rep reply) {
 
 // record appends a captured value to the log.
 func (s *Server) record(req request) reply {
-	if s.mode != ModeRecord {
+	if s.mode == ModeReplay {
 		return reply{Err: "not recording"}
 	}
 
-	s.mu.Lock()
-	s.queues[req.Src] = append(s.queues[req.Src], append(json.RawMessage(nil), req.Val...))
-	s.mu.Unlock()
+	// The queue is what a later replay would be served from, so a recording run
+	// keeps its values there. A fork must not: its queue holds what the parent
+	// recorded and has not yet handed over, and appending the child's own draws
+	// to it would conflate two different runs in one list.
+	if s.mode == ModeRecord {
+		s.mu.Lock()
+		s.queues[req.Src] = append(s.queues[req.Src], append(json.RawMessage(nil), req.Val...))
+		s.mu.Unlock()
+	}
 
 	s.appendEvent(req.Src, req.Val)
 	return reply{OK: true}
@@ -206,7 +234,17 @@ func (s *Server) record(req request) reply {
 // different path. Inventing a value here would let replay report success over a
 // run that did something else.
 func (s *Server) serve(req request) reply {
-	if s.mode != ModeReplay {
+	switch s.mode {
+	case ModeReplay:
+	case ModeFork:
+		// Past the fork point the recording is no longer the authority on what
+		// this run does, so the agent draws for real and reports the value back.
+		// The remaining recorded values are left in the queue: they belong to the
+		// run that was, not to the one being explored.
+		if s.Live != nil && s.Live() {
+			return reply{OK: true, Live: true}
+		}
+	default:
 		return reply{Err: "not replaying"}
 	}
 

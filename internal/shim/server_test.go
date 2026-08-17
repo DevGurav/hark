@@ -1,13 +1,16 @@
 package shim
 
 import (
+	"bufio"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -279,6 +282,127 @@ func TestNewRejectsBadMode(t *testing.T) {
 	}
 	if _, err := New(t.TempDir(), ModeRecord, nil, nil); err == nil {
 		t.Fatal("accepted recording with no recorder")
+	}
+}
+
+// A forked run consumes the recording up to its fork point and draws for real
+// after it. The switch is the supervisor's to make -- it is the side that knows
+// how far the verified prefix got -- but the value has to be produced in the
+// agent's own process, so the reply says "live" and expects one back.
+//
+// Driven over the socket rather than through an interpreter, so it runs
+// everywhere. The Python half is exercised by TestForkAgentDrawsLiveValues.
+func TestForkServesTheRecordingUntilTheGateOpens(t *testing.T) {
+	rec := &capture{}
+	var live atomic.Bool
+
+	s := start(t, ModeFork, rec, Values{
+		"random.random": {json.RawMessage("0.25"), json.RawMessage("0.75")},
+	})
+	s.Live = live.Load
+
+	c := dialShim(t, s)
+
+	if got := c.call(t, request{Op: "get", Src: "random.random"}); string(got.Val) != "0.25" {
+		t.Fatalf("below the fork point the recording is the authority, got %s", got.Val)
+	}
+
+	live.Store(true)
+
+	got := c.call(t, request{Op: "get", Src: "random.random"})
+	if !got.Live {
+		t.Fatalf("past the fork point the agent must draw for real, got %s", got.Val)
+	}
+	if len(got.Val) != 0 {
+		t.Fatalf("a live reply must not also carry a value: %s", got.Val)
+	}
+	if reply := c.call(t, request{Op: "rec", Src: "random.random", Val: json.RawMessage("0.9")}); !reply.OK {
+		t.Fatalf("the live value was refused: %s", reply.Err)
+	}
+
+	// Two values reached the agent and both are in the log -- the one served from
+	// the recording and the one it drew itself. A fork's suffix is a recording in
+	// its own right, and its prefix has to replay again.
+	if got := len(rec.all()); got != 2 {
+		t.Fatalf("recorded %d events, expected 2", got)
+	}
+
+	// The unconsumed recorded value belongs to the run that was, not to the one
+	// being explored, so it stays in the queue rather than being served later.
+	if got := s.Remaining()["random.random"]; got != 1 {
+		t.Fatalf("%d recorded values left, expected 1", got)
+	}
+}
+
+// shimClient speaks the newline-delimited JSON protocol directly.
+type shimClient struct {
+	conn net.Conn
+	r    *bufio.Reader
+}
+
+func dialShim(t *testing.T, s *Server) *shimClient {
+	t.Helper()
+	conn, err := net.Dial("unix", s.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	return &shimClient{conn: conn, r: bufio.NewReader(conn)}
+}
+
+func (c *shimClient) call(t *testing.T, req request) reply {
+	t.Helper()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.conn.Write(append(body, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	line, err := c.r.ReadBytes('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep reply
+	if err := json.Unmarshal(line, &rep); err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
+// The Python half of the same handover: the recorded value comes back below the
+// fork point, and a real one is drawn and logged above it.
+func TestForkAgentDrawsLiveValues(t *testing.T) {
+	rec := &capture{}
+
+	s := start(t, ModeFork, rec, Values{
+		"random.random": {json.RawMessage("0.125")},
+	})
+	// The gate opens after the first draw. In a real fork it opens on the event
+	// count reaching the fork point; here counting the reads is equivalent and
+	// keeps the test to one moving part.
+	reads := 0
+	s.Live = func() bool { reads++; return reads > 1 }
+
+	out, err := runAgent(t, s, `
+import random
+print("a=%r" % random.random())
+print("b=%r" % random.random())
+`)
+	// runAgent skips on a machine without a usable interpreter, so anything
+	// reaching here ran the code.
+	if err != nil {
+		t.Fatalf("forked agent failed: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(out, "a=0.125") {
+		t.Fatalf("the prefix draw did not come from the recording:\n%s", out)
+	}
+	if strings.Count(out, "0.125") != 1 {
+		t.Fatalf("the recording was served past the fork point:\n%s", out)
+	}
+	if got := len(rec.all()); got != 2 {
+		t.Fatalf("recorded %d draws, expected 2 -- the live one must be logged too", got)
 	}
 }
 

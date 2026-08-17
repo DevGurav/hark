@@ -62,7 +62,7 @@ class _outermost:
         return False
 
 _SOCKET = os.environ.get("HARK_SHIM_SOCKET")
-_MODE = os.environ.get("HARK_SHIM_MODE")  # "record" or "replay"
+_MODE = os.environ.get("HARK_SHIM_MODE")  # "record", "replay" or "fork"
 
 
 def _fail(message):
@@ -111,7 +111,7 @@ class _Channel:
             # In replay this means the recording has nothing left for this
             # source: the run diverged. Refusing beats inventing a value.
             _fail(reply.get("err", "unknown error"))
-        return reply.get("val")
+        return reply
 
 
 _channel = None
@@ -123,7 +123,49 @@ def _record(src, value):
 
 
 def _replay(src):
-    return _channel.call("get", src)
+    return _channel.call("get", src).get("val")
+
+
+def _obtain(src, produce, encode=None, decode=None):
+    """Return a value for src, honouring the mode.
+
+    Recording draws for real and reports the value. Replay asks for the recorded
+    one and never draws. A fork does both, in that order: recorded values up to
+    its branch point, then real ones -- and the supervisor is the one that says
+    when, because it is the side that knows how far the verified prefix got.
+
+    The value is produced here rather than by the supervisor because only this
+    process can make one of the right shape. A ``uuid.UUID`` the agent's own
+    module accepts is not something to reconstruct from the other end of a
+    socket.
+    """
+    if _MODE == "record":
+        v = produce()
+        _record(src, v if encode is None else encode(v))
+        return v
+
+    reply = _channel.call("get", src)
+    if reply.get("live"):
+        v = produce()
+        _record(src, v if encode is None else encode(v))
+        return v
+
+    val = reply.get("val")
+    return val if decode is None else decode(val)
+
+
+def _draw(src, produce, encode=None, decode=None):
+    """_obtain, for the sources that nest.
+
+    uuid4 calls os.urandom underneath, and both are patched. Only the outermost
+    call is captured; an inner one is served the real thing and left off the
+    record, or the queues drift apart and a later draw is answered with bytes
+    recorded for something else.
+    """
+    with _outermost() as outer:
+        if not outer:
+            return produce()
+        return _obtain(src, produce, encode, decode)
 
 
 def _install():
@@ -131,31 +173,22 @@ def _install():
     import time
     import uuid
 
-    recording = _MODE == "record"
-
     # --- clock -----------------------------------------------------------
     # Both the float and _ns variants are patched. Python's own libraries reach
     # for whichever suits them, and leaving one unpatched would let a run read an
     # unrecorded clock through the back door.
+    #
+    # No re-entrancy guard here: a clock read cannot nest inside another.
 
-    real_time, real_monotonic = time.time, time.monotonic
-    real_time_ns, real_monotonic_ns = time.time_ns, time.monotonic_ns
-
-    def _clock(name, real, scale_ns=False):
-        if recording:
-            def fn():
-                v = real()
-                _record(name, v)
-                return v
-        else:
-            def fn():
-                return _replay(name)
+    def _clock(name, real):
+        def fn():
+            return _obtain(name, real)
         return fn
 
-    time.time = _clock("time.time", real_time)
-    time.monotonic = _clock("time.monotonic", real_monotonic)
-    time.time_ns = _clock("time.time_ns", real_time_ns)
-    time.monotonic_ns = _clock("time.monotonic_ns", real_monotonic_ns)
+    time.time = _clock("time.time", time.time)
+    time.monotonic = _clock("time.monotonic", time.monotonic)
+    time.time_ns = _clock("time.time_ns", time.time_ns)
+    time.monotonic_ns = _clock("time.monotonic_ns", time.monotonic_ns)
 
     # --- randomness ------------------------------------------------------
     # Recorded per draw rather than by seeding.
@@ -169,45 +202,18 @@ def _install():
     real_urandom = os.urandom
     real_uuid4 = uuid.uuid4
 
-    if recording:
-        def _random():
-            with _outermost() as outer:
-                v = real_random()
-            return _record("random.random", v) if outer else v
+    def _random():
+        return _draw("random.random", real_random)
 
-        def _getrandbits(k):
-            with _outermost() as outer:
-                v = real_getrandbits(k)
-            return _record("random.getrandbits", v) if outer else v
+    def _getrandbits(k):
+        return _draw("random.getrandbits", lambda: real_getrandbits(k))
 
-        def _urandom(n):
-            with _outermost() as outer:
-                v = real_urandom(n)
-            if outer:
-                _record("os.urandom", v.hex())
-            return v
+    def _urandom(n):
+        return _draw("os.urandom", lambda: real_urandom(n),
+                     encode=lambda v: v.hex(), decode=bytes.fromhex)
 
-        def _uuid4():
-            # The guard is held across real_uuid4 precisely because it calls
-            # os.urandom underneath: that inner draw must not be recorded
-            # separately, or replay would consume it out of order.
-            with _outermost() as outer:
-                v = real_uuid4()
-            if outer:
-                _record("uuid.uuid4", str(v))
-            return v
-    else:
-        def _random():
-            return _replay("random.random")
-
-        def _getrandbits(k):
-            return _replay("random.getrandbits")
-
-        def _urandom(n):
-            return bytes.fromhex(_replay("os.urandom"))
-
-        def _uuid4():
-            return uuid.UUID(_replay("uuid.uuid4"))
+    def _uuid4():
+        return _draw("uuid.uuid4", real_uuid4, encode=str, decode=uuid.UUID)
 
     random.random = _random
     random.getrandbits = _getrandbits
@@ -223,8 +229,8 @@ def _install():
 
 
 if _SOCKET and _MODE:
-    if _MODE not in ("record", "replay"):
-        _fail("HARK_SHIM_MODE must be 'record' or 'replay', got %r" % _MODE)
+    if _MODE not in ("record", "replay", "fork"):
+        _fail("HARK_SHIM_MODE must be 'record', 'replay' or 'fork', got %r" % _MODE)
     if not hasattr(socket, "AF_UNIX"):
         _fail("this interpreter has no AF_UNIX support; hark runs on Linux")
 
