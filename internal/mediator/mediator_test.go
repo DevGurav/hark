@@ -79,7 +79,7 @@ func (c *capture) syncCount() int {
 	return c.syncs
 }
 
-func testPolicy(t *testing.T) *policy.Policy {
+func testPolicy(t testing.TB) *policy.Policy {
 	t.Helper()
 	p, err := policy.Parse([]byte("allow_hosts = [\""+allowedHost+"\"]\n"), "test.toml")
 	if err != nil {
@@ -89,7 +89,7 @@ func testPolicy(t *testing.T) *policy.Policy {
 }
 
 // start brings up a mediator on loopback and returns it with its recorder.
-func start(t *testing.T, cfg Config) (*Mediator, *capture) {
+func start(t testing.TB, cfg Config) (*Mediator, *capture) {
 	t.Helper()
 
 	rec := &capture{}
@@ -456,7 +456,7 @@ func TestNewValidatesConfig(t *testing.T) {
 }
 
 // httpsUpstream starts a TLS server standing in for the model endpoint.
-func httpsUpstream(t *testing.T, h http.HandlerFunc) string {
+func httpsUpstream(t testing.TB, h http.HandlerFunc) string {
 	t.Helper()
 
 	ca, err := NewCA("01UPSTREAM")

@@ -208,7 +208,7 @@ func doRequestAllowingError(t *testing.T, m *Mediator, method, path, body string
 // agentClient is an HTTP client that trusts the run's CA and reaches the
 // mediator the way a contained agent does. Returned rather than built per
 // request so a test can keep one connection alive across several exchanges.
-func agentClient(t *testing.T, m *Mediator) *http.Client {
+func agentClient(t testing.TB, m *Mediator) *http.Client {
 	t.Helper()
 
 	pool := x509.NewCertPool()
@@ -227,7 +227,7 @@ func agentClient(t *testing.T, m *Mediator) *http.Client {
 	}
 }
 
-func send(t *testing.T, client *http.Client, method, path, body string) (*http.Response, error) {
+func send(t testing.TB, client *http.Client, method, path, body string) (*http.Response, error) {
 	t.Helper()
 	req, err := http.NewRequest(method, "https://"+allowedHost+path, strings.NewReader(body))
 	if err != nil {

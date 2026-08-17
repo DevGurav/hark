@@ -20,8 +20,17 @@ import json
 import os
 import ssl
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# Seconds to wait before answering a completion, from HARK_STUB_DELAY.
+#
+# Zero for the demo. The benchmark sets it, because the number worth publishing
+# is how much wall time replay skips, and a stub that answers instantly has no
+# latency to skip -- it would understate the one figure most likely to be
+# quoted. A real model call is closer to a second than to a microsecond.
+DELAY = float(os.environ.get("HARK_STUB_DELAY", "0"))
 
 # The marker the injected instruction carries. The stub follows the instruction
 # when it is present and summarises when it is not, which is what makes the fork
@@ -84,6 +93,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self._send(400, "not json", "text/plain")
             return
+
+        if DELAY:
+            time.sleep(DELAY)
 
         page = payload.get("page", "")
         plan = EXFILTRATION_PLAN if INJECTION in page else BENIGN_PLAN
