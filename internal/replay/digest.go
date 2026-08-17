@@ -76,6 +76,7 @@ func Compute(path string) (*Digest, error) {
 	defer r.Close()
 
 	d := &Digest{}
+	var acc Accumulator
 	for {
 		f, err := r.Next()
 		if errors.Is(err, io.EOF) {
@@ -88,19 +89,52 @@ func Compute(path string) (*Digest, error) {
 			return nil, err
 		}
 
-		normalised, summary, include := normalise(f.Kind, f.Payload)
+		step, include := acc.Add(f.Kind, f.Payload)
 		if !include {
 			continue
 		}
-
-		leaf := hashchain.Leaf(uint64(len(d.Steps)), uint8(f.Kind), normalised)
-		d.Root = hashchain.Chain(d.Root, leaf)
-		d.Steps = append(d.Steps, Step{
-			Seq: f.Seq, Kind: f.Kind, Hash: d.Root, Summary: summary,
-		})
+		step.Seq = f.Seq
+		d.Root = step.Hash
+		d.Steps = append(d.Steps, step)
 	}
 	return d, nil
 }
+
+// Accumulator folds normalised actions into a running digest.
+//
+// Compute needs a finished bundle; a fork needs the same arithmetic applied to a
+// run that is still happening, so that it can abort the moment its prefix stops
+// matching the recording rather than discovering it afterwards. Both go through
+// here, which is what stops the two from drifting apart -- a second
+// implementation of "what counts as the same action" would eventually disagree
+// with this one, and the way that shows up is a fork claiming a verified prefix
+// it never had.
+type Accumulator struct {
+	root hashchain.Hash
+	n    uint64
+}
+
+// Add folds one event in and returns the step it produced. The bool reports
+// whether the event participates at all; a step is returned only when it does.
+//
+// Seq is left zero: the caller knows the sequence number, and the accumulator
+// deliberately indexes by action position rather than by it.
+func (a *Accumulator) Add(kind logfmt.Kind, payload []byte) (Step, bool) {
+	normalised, summary, include := normalise(kind, payload)
+	if !include {
+		return Step{}, false
+	}
+	leaf := hashchain.Leaf(a.n, uint8(kind), normalised)
+	a.root = hashchain.Chain(a.root, leaf)
+	a.n++
+	return Step{Kind: kind, Hash: a.root, Summary: summary}, true
+}
+
+// Actions reports how many actions have been folded in.
+func (a *Accumulator) Actions() uint64 { return a.n }
+
+// Root is the running digest over everything added so far.
+func (a *Accumulator) Root() hashchain.Hash { return a.root }
 
 // normalise strips the volatile fields from one event and re-encodes it.
 //
