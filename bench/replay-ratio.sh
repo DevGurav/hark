@@ -49,6 +49,8 @@ if [ ! -f "$DEMO/stub.pem" ]; then
     -addext "subjectAltName=DNS:docs.example,DNS:model.example" 2>/dev/null
 fi
 
+rm -f "$BENCH/bench.hark" "$BENCH/bench-replay.hark"
+
 HARK_STUB_DELAY="$DELAY" "$PY" "$DEMO/stub.py" "$STUB_ADDR" &
 STUB_PID=$!
 trap 'kill $STUB_PID 2>/dev/null || true' EXIT
@@ -73,6 +75,9 @@ record_once() {
 }
 
 replay_once() {
+  # Removed first: a bundle is created with O_EXCL so a run can never overwrite
+  # a recording, and a divergent replay leaves its output behind.
+  rm -f "$BENCH/bench-replay.hark"
   "$HARK" replay -o "$BENCH/bench-replay.hark" "$BENCH/bench.hark"
 }
 
