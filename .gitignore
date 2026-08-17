@@ -32,3 +32,8 @@ proof*.json
 *.swp
 .DS_Store
 Thumbs.db
+
+# Python bytecode. The shim ships as source; a .pyc from one interpreter
+# version is noise in every other.
+__pycache__/
+*.pyc
