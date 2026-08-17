@@ -27,7 +27,7 @@ the sender.
 | Threat | Control | Status |
 | --- | --- | --- |
 | A1 exfiltrates a credential | Broker: the agent's environment holds `hark-placeholder-<runid>`; real values are injected at the boundary, after Zone 2 | W2 |
-| A1 reaches a disallowed host | Network namespace whose only route is the veth to the mediator, plus `FORWARD` DROP rules so the host cannot route onward | namespace done; allowlist evaluation pending |
+| A1 reaches a disallowed host | Network namespace whose only route is the veth to the mediator, plus `FORWARD` DROP rules so the host cannot route onward | done, enforced end to end |
 | A1 evades the proxy by ignoring `HTTPS_PROXY` | Namespace, not the environment variable, is the control — there is no other route regardless of the agent's code. The intended host is recovered from the TLS SNI, so the attempt is recorded rather than silently dropped | W2 |
 | A1 exfiltrates over DNS | The mediator is the namespace's only resolver; every lookup is a recorded, policy-checked event and every A answer points back at the mediator | W2 |
 | A1 dials a literal IP to skip DNS | Still has nowhere to route except the mediator; recorded as an attempt with an empty host rather than allowed by default | W2 |
@@ -39,12 +39,24 @@ the sender.
 | A1 hides an attempt by crashing afterwards | `EgressAttempt` is written before the decision, and the writer fsyncs after a denial | done (writer) |
 | A2 or A3 edits a bundle | Per-frame leaf hashes and a hash chain; the verifier names the faulting event and distinguishes an edit from a splice | done |
 | A2 substitutes a whole bundle | Ed25519 signed tree head, with `hark verify -key` for pinning | done |
-| A3 rewrites a run and re-signs it | Transparency log inclusion proof against a published tree head | W4 |
+| A3 rewrites a run and re-signs it | Sigstore Rekor entry over the signed tree head; `hark verify` fetches it, checks it covers this run, and recomputes the log's root from the inclusion proof | done |
 | A4 must trust the sender | Inclusion proofs verify against a root obtained independently; one event costs log₂(N) hashes and discloses nothing else | done |
 
 ## Known limitations
 
 Stated here rather than discovered by a reader.
+
+- **A redirected upstream is a recorded fact, not a hidden one.** `-upstream HOST=ADDR` makes the
+  mediator dial somewhere else, which the demo and the benchmarks both need. It is recorded in
+  `RunStart`, the redirected host still has to be in the allowlist, and TLS still verifies the name
+  the agent asked for against a CA named with `-upstream-ca`. A bundle therefore cannot quietly claim
+  it reached a host it did not — [ADR-0009](decisions/0009-upstream-redirection-is-recorded-not-hidden.md).
+- **A fork's suffix is a live run.** Only the prefix is verified against the recording, action by
+  action. Nothing after the branch point is reproducible and the output never says otherwise —
+  [ADR-0008](decisions/0008-forks-have-a-verified-prefix-and-a-live-suffix.md).
+- **An HTML report is not a verification.** It shows what `hark verify` found when it was rendered.
+  A reader who trusts a rendered page instead of running the verifier has a picture of a
+  verification, and the page says as much in its footer.
 
 - **`/proc` is readable.** Granted read-only in every run, because interpreters genuinely need it, so
   the agent can enumerate other processes on the host. Visibility, not access: seccomp denies the

@@ -88,18 +88,33 @@ same digest, so a replayed bundle is itself a faithful recording.
 - [x] Replay equality: a digest over normalised actions, or the first divergent event named. Not the
       Merkle root — see the build log for why comparing roots could never work.
 
-## W4 — the incident, and v0.1 · not started
+## W4 — the incident, and v0.1 · **built, awaiting the box**
 
 Spec: [build/w4-v0.1.md](build/w4-v0.1.md)
 
 **v0.1 ships here and must be independently interview-ready.**
 
-- [ ] The prompt-injection demo end to end.
-- [ ] `hark fork`, manual, one flag.
-- [ ] Static HTML trace report generated from a bundle. No server, no UI framework.
-- [ ] Rekor anchoring at seal time.
-- [ ] `docs/benchmarking.md` methodology, then numbers.
-- [ ] README with the demo GIF.
+Everything below is implemented and green off the box: 22 test files across 16 packages, `go vet`
+clean, and the Linux target cross-builds. What has *not* happened is the part that can only happen on
+the Linux box — the demo has never been run end to end, so no acceptance below is ticked on the
+strength of code review alone. W2 and W3 both found real defects the moment they ran; assuming this
+week will not is the mistake those weeks exist to warn against.
+
+- [x] The prompt-injection demo, written: agent, poisoned page, stub upstream, policy, `demo/run.sh`.
+- [x] `hark fork -at N -patch p.json`, with the branch-point gate that verifies the prefix as it
+      happens. [ADR-0008](decisions/0008-forks-have-a-verified-prefix-and-a-live-suffix.md).
+- [x] Static HTML trace report from a bundle. No server, no framework, no JavaScript, no external
+      request — asserted by test, not by intention.
+- [x] Rekor anchoring at seal time, non-fatal, with `hark verify` recomputing the inclusion proof
+      rather than believing the log's answer.
+- [x] `-upstream HOST=ADDR`, recorded in `RunStart`, which the hermetic demo and the benchmarks both
+      need. [ADR-0009](decisions/0009-upstream-redirection-is-recorded-not-hidden.md).
+- [x] Benchmark harnesses for four of the five figures, each behind a documented command.
+- [ ] **Run `demo/run.sh` on the box.** Record, verify, replay, fork, report.
+- [ ] **Anchor one run for real** and verify its inclusion from a second machine.
+- [ ] Fill in `docs/benchmarking.md` from the box, then quote those numbers in the README.
+- [ ] README with the demo GIF, and the verified related-work table from W0.
+- [ ] Tag `v0.1.0`, once the above are true rather than expected to be.
 
 ## W5 — a real workload · not started
 

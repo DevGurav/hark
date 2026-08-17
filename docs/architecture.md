@@ -49,6 +49,9 @@ Three invariants fall out of this layout, and they are the ones to preserve when
 | `internal/broker` | Placeholder credentials, substituted at the boundary. |
 | `internal/reqkey` | Canonical request identity, so a replayed request finds its recorded response. |
 | `internal/replay` | Indexes a recording for playback, and reduces a run to its comparable actions. |
+| `internal/fork` | The branch-point gate that verifies a fork's prefix as it happens, and the patch applied at it. |
+| `internal/rekor` | Submits a signed tree head to a transparency log, and checks an inclusion proof against RFC 6962 arithmetic. |
+| `internal/report` | Renders a bundle as one self-contained HTML file. |
 | `internal/shim` | The supervisor's side of the in-process clock and RNG capture channel. |
 | `shim/` | The Python side, injected via `PYTHONPATH`. |
 | `cmd/hark` | CLI. |
@@ -70,9 +73,19 @@ Capabilities are dropped first, then Landlock, then seccomp. Neither of the last
 and dropping first is both the safer default and a hard requirement — the capability drop reads
 `/proc`, which Landlock would otherwise have already closed off.
 
+### How a fork branches
+
+A fork re-executes the agent rather than resuming it — there is no process checkpoint — so the gate
+that decides *when* it has reached the branch point is driven by the child's own event stream. Each
+event is folded into the same digest `hark replay` compares, and checked against the parent's step at
+that index as it happens; a divergence kills the agent rather than producing a bundle whose
+`ParentRoot` it has no claim to. Past the branch point the mediator dials for real and the shim tells
+the agent to draw its own clock and randomness. See
+[ADR-0008](decisions/0008-forks-have-a-verified-prefix-and-a-live-suffix.md).
+
 ### Not yet built
 
-`hark fork`, the static HTML trace report, and Rekor anchoring — all W4. See
+`hark bisect` — automated counterfactual search for the minimal injected span that flips a plan. See
 [roadmap.md](roadmap.md).
 
 ## How the agent's destination is learned

@@ -101,9 +101,9 @@ Verification:
 | 4 | ArgvHash | |
 | 5 | PolicyHash | |
 | 6 | EnvHash | |
-| 7 | ParentRoot | forked runs only |
-| 8 | ForkPoint | seq the fork diverged at |
-| 9 | PatchHash | |
+| 7 | ParentRoot | forked runs only: the parent's sealed MMR root |
+| 8 | ForkPoint | the event the fork branched at; events before it were replayed and verified |
+| 9 | PatchHash | BLAKE3 of the patch file as it was on disk |
 
 ## Footer
 
@@ -113,8 +113,14 @@ Verification:
 | 2 | Root | MMR root |
 | 3 | FinalChain | last chain value |
 | 4 | STH | signed tree head, optional |
-| 5 | RekorEntry | transparency log reference, empty if unanchored |
-| 6 | RekorIndex | |
+| 5 | RekorEntry | Rekor entry UUID, empty if unanchored |
+| 6 | RekorIndex | log index of that entry |
+
+The anchor is submitted as a Sigstore `rekord` v0.0.1 entry over the signed-tree-head bytes, not as
+a `hashedrekord`. The latter carries only a digest, and an Ed25519 signature is over the whole
+message — a log handed a digest would have nothing to verify the signature against. `hark verify`
+fetches the entry back, checks it covers this tree head, and recomputes the log's root from the
+inclusion proof rather than believing the API's word for it.
 
 ## Signed tree head
 
@@ -127,6 +133,18 @@ Signed bytes, with lengths prefixed so no two distinct heads can produce the sam
 Ed25519. The verifier checks the signature, that the signed root equals the recomputed root, and
 that the signed leaf count equals the observed one — a valid signature over an unrelated tree must
 not pass.
+
+## Event payloads worth naming here
+
+Payload fields are documented alongside their Go types in `internal/logfmt/event.go`, which is the
+readable form of this section. Two carry claims a reader has to be able to check:
+
+`RunStart.Upstreams` (key 10) lists the `-upstream HOST=ADDR` redirections in force, sorted, empty
+for an ordinary run. A bundle whose events name a host the mediator never dialled would be
+internally consistent and untrue, so the redirection is part of the run's recorded starting
+conditions — [ADR-0009](decisions/0009-upstream-redirection-is-recorded-not-hidden.md).
+
+`SecretInjected` records a substitution by reference only; see [Secrets](#secrets) below.
 
 ## Event kinds
 
