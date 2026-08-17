@@ -228,21 +228,24 @@ Also: [api](docs/api.md) · [data model](docs/data-model.md) · [runbook](docs/r
 
 ## Related work
 
-Containment and audit logging for agents are both actively worked on; the combination with
-bit-comparable replay under one mediator is where `hark` differs.
+Checked against each project's own repository and documentation in August 2026, not against a
+summary. Where a row is uncomfortable for `hark`, it says so: overstating the gap would be a worse
+outcome than having a smaller one.
 
-| Category | Examples | Difference |
+| Project | What it actually does | Where `hark` differs |
 | --- | --- | --- |
-| Agent sandboxes | Pipelock, Clawker, Nono | Contain the agent; do not produce a replayable artifact |
-| System observability | AgentSight | Observes syscalls and TLS; does not enforce or replay |
-| MCP recorders | Agent VCR, mcpsnoop | Record and replay tool calls; no containment, no proofs |
-| Tracing and eval | LangSmith, Braintrust, Arize | Observation and regression testing, not a runtime |
-| Durable execution | Temporal | Event-sourced replay, but not LLM-aware and with no security model |
+| [Pipelock](https://github.com/luckyPipewrench/pipelock) | An agent firewall with the same containment primitives — Landlock, seccomp, network namespaces — that scans mediated HTTP/MCP/A2A traffic, emits Ed25519-signed action receipts over a hash-chained evidence log, and can anchor receipt checkpoints in Rekor | **The nearest neighbour by a distance.** The artifact is forensic rather than re-executable: it records what was decided, not enough to re-derive the run. No replay, no fork |
+| [Clawker](https://github.com/schmitthub/clawker) | Runs coding agents in Docker containers behind a deny-by-default egress firewall, self-hosted | Container isolation and egress control, no recording of the traffic as a verifiable artifact |
+| [nono](https://github.com/nolabs-ai/nono) | Kernel-enforced capability sandbox — Landlock on Linux, Seatbelt on macOS — wrapping any agent process with no daemon or container | Containment only; produces no run artifact |
+| [AgentSight](https://github.com/eunomia-bpf/agentsight) | eBPF observability: intercepts TLS to recover LLM traffic and correlates it with kernel events, zero instrumentation, <3% overhead ([paper](https://arxiv.org/abs/2508.02736)) | Observes without enforcing, and does not produce a replayable recording. Its eBPF approach is what `hark` defers past v0.1 — [ADR-0003](docs/decisions/0003-network-namespaces-not-ebpf-for-v0.1.md) |
+| [Agent VCR](https://github.com/Jarvis2021/agent-vcr) | Records MCP JSON-RPC sessions into `.vcr` cassettes and replays them deterministically in CI, cross-language between Python and TypeScript | Genuinely deterministic replay, at the MCP layer, for testing. No containment, no tamper-evidence, and the recording is a test fixture rather than evidence |
+| [mcpsnoop](https://github.com/kerlenton/mcpsnoop) | Transparent stdio proxy showing every MCP frame live, with a `check` command to gate a run on protocol errors | Debugging visibility, not enforcement or replay |
+| [LangSmith](https://smith.langchain.com), [Braintrust](https://www.braintrust.dev), [Arize Phoenix](https://arize.com) | Trace and evaluate LLM applications: nested spans, cost and latency, LLM-as-judge scoring, regression datasets | Observation and judgement of runs the application reports. `hark` is the runtime the agent runs inside, and its record is taken at a boundary the agent cannot bypass |
+| [Temporal](https://docs.temporal.io/encyclopedia/event-history) | Durable execution: an event history per workflow, re-executed deterministically after failure, with a command mismatch detected as non-determinism | The same core idea, applied to workflows rather than agents, with no security model and no cryptographic audit. `hark` borrows the shape and adds containment and proofs |
 
-> These rows are a positioning sketch, not a verified comparison. Each one must be checked against
-> the actual project before this repo is made public — see the W0 item in
-> [docs/roadmap.md](docs/roadmap.md). Misstating a peer project's capabilities would be a worse
-> outcome than omitting the table.
+Two honest conclusions from doing this properly. **Containment is a crowded field and `hark` should never be introduced as a sandbox** — Pipelock in particular reaches the same kernel primitives and signs its evidence. And **deterministic replay already exists at the MCP layer**, in Agent VCR, done well.
+
+What no project in this table does is produce one artifact that is simultaneously the enforcement record and a sufficient input to re-execute the run, with a fork that can prove which part of a counterfactual is the original run. That intersection is the whole of `hark`'s claim, and it is a narrower claim than "agent sandbox with an audit log".
 
 ## Maintainer
 

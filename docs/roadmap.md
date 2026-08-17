@@ -7,7 +7,7 @@ This file is the state of the work. The implementation specs in [build/](build/)
 gets executed — file paths, interfaces, acceptance commands and traps. Open the spec for the current
 phase before writing code.
 
-## W0 — groundwork · **mostly done**
+## W0 — groundwork · **done**
 
 Spec: [build/w0-groundwork.md](build/w0-groundwork.md)
 
@@ -17,8 +17,11 @@ Spec: [build/w0-groundwork.md](build/w0-groundwork.md)
       proven, and mediated DNS + SNI host identification proven. Transcript in
       [build/w2-launcher.md](build/w2-launcher.md).
 - [x] Repo builds and tests green on the target box, race detector included.
-- [ ] Verify every row of the README's related-work table against the actual projects. The table
-      ships only once each claim has been checked against source, not against a summary.
+- [x] Verify every row of the README's related-work table against the actual projects. Done
+      2026-08-17, against each project's own repository rather than a summary. It found the sketch
+      understating the nearest neighbour: Pipelock reaches the same kernel primitives *and* signs a
+      hash-chained evidence log with optional Rekor anchoring. The table now says so, and the
+      positioning narrows accordingly — replay and fork, never sandboxing.
 
 ## W1 — bundle format and verifier · **done**
 
@@ -111,8 +114,11 @@ to prevent. They are in [build-log.md](build-log.md).
 - [x] Benchmark harnesses for four of the five figures, each behind a documented command.
 - [x] **Run `demo/run.sh` on the box.** Record, verify, replay, fork, report — all green.
 - [x] Fill in `docs/benchmarking.md` from the box, and quote those numbers in the README.
-- [ ] **Anchor one run for real** and verify its inclusion from a second machine.
-- [ ] README with the demo GIF, and the verified related-work table from W0.
+- [x] **Anchor one run for real** and verify its inclusion from a second machine. Rekor entry
+      `108e9186…`, log index 2498575532; verified from a Windows laptop that never saw the run, with
+      the proof recomputed locally against a tree that had grown since the anchor.
+- [x] The verified related-work table from W0.
+- [ ] README with the demo GIF.
 - [ ] Tag `v0.1.0`, once the above are true rather than expected to be.
 
 ## W5 — a real workload · not started
