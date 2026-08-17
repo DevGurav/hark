@@ -127,7 +127,10 @@ time "$HARK" replay incident.hark
 # The branch point is the fetch of the poisoned page: the first request to
 # docs.example. Forking there and stripping the injection asks whether the page
 # was the cause, rather than patching the conclusion.
-AT="$("$HARK" inspect incident.hark | awk '$2=="LlmRequest" && /docs.example/{print $1; exit}')"
+# awk reads to the end rather than exiting at the first match: exiting early
+# closes the pipe, inspect takes SIGPIPE, and pipefail turns that into a failed
+# script one line after a successful replay.
+AT="$("$HARK" inspect incident.hark | awk '$2=="LlmRequest" && /docs.example/ && !seen {print $1; seen=1}')"
 [ -n "$AT" ] || die "no request to docs.example in the recording; did the run fail?"
 
 say "5. forking at event $AT with the injection stripped"
