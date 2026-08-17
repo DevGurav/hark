@@ -6,8 +6,9 @@ independent version number, documented in [docs/protocol.md](docs/protocol.md).
 
 ## [Unreleased]
 
-Everything below is implemented and tested; `v0.1.0` is tagged once `demo/run.sh` has been run end to
-end on Linux and the benchmark figures are filled in. See [docs/roadmap.md](docs/roadmap.md).
+Everything below is implemented, tested, and verified end to end on Linux. `v0.1.0` is tagged once a
+run has been anchored in the transparency log for real and the README carries its demo GIF. See
+[docs/roadmap.md](docs/roadmap.md).
 
 ### Added — W4
 
@@ -29,6 +30,20 @@ end on Linux and the benchmark figures are filled in. See [docs/roadmap.md](docs
   and verify and inclusion-proof cost at 100k events.
 - ADR-0008 (a fork is a verified prefix and a live suffix) and ADR-0009 (upstream redirection is
   recorded, not hidden).
+
+### Fixed — found by running the demo on Linux
+
+- A real credential could reach the log. `buildEnv` appended the placeholder to the supervisor's
+  environment instead of replacing the inherited variable, and CPython keeps the *first* of a
+  duplicated name, so an operator running `API_KEY=... hark run` handed the agent the real value.
+  `Broker.ContainsSecret` — documented as the recorder's assertion and called by nothing — is now
+  wired in, and refuses to write such an event at all.
+- Landlock rule handles are opened before capabilities are dropped, and `Launch` refuses up front
+  when a granted path is unreachable by a process with no capabilities. A clone in a mode-0750 home
+  directory is the ordinary case.
+- Credential substitution happens in playback too, so a replayed bundle contains the `SecretInjected`
+  events its recording does. The digest stops comparing `ValueHash`, which a replay cannot have.
+- A data race between `Serve` and `Close` in the shim, and an exported field that invited another.
 
 ### Changed — W4
 

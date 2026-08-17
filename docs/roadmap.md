@@ -88,17 +88,16 @@ same digest, so a replayed bundle is itself a faithful recording.
 - [x] Replay equality: a digest over normalised actions, or the first divergent event named. Not the
       Merkle root — see the build log for why comparing roots could never work.
 
-## W4 — the incident, and v0.1 · **built, awaiting the box**
+## W4 — the incident, and v0.1 · **verified on the box**
 
 Spec: [build/w4-v0.1.md](build/w4-v0.1.md)
 
 **v0.1 ships here and must be independently interview-ready.**
 
-Everything below is implemented and green off the box: 22 test files across 16 packages, `go vet`
-clean, and the Linux target cross-builds. What has *not* happened is the part that can only happen on
-the Linux box — the demo has never been run end to end, so no acceptance below is ticked on the
-strength of code review alone. W2 and W3 both found real defects the moment they ran; assuming this
-week will not is the mistake those weeks exist to warn against.
+Run end to end on kernel 6.17: the demo records, verifies, replays equal at 31 actions, forks with
+the injection stripped, and renders. It took five defects to get there, every one of them invisible
+until it ran — including a real credential reaching the log, which is the failure this project exists
+to prevent. They are in [build-log.md](build-log.md).
 
 - [x] The prompt-injection demo, written: agent, poisoned page, stub upstream, policy, `demo/run.sh`.
 - [x] `hark fork -at N -patch p.json`, with the branch-point gate that verifies the prefix as it
@@ -110,9 +109,9 @@ week will not is the mistake those weeks exist to warn against.
 - [x] `-upstream HOST=ADDR`, recorded in `RunStart`, which the hermetic demo and the benchmarks both
       need. [ADR-0009](decisions/0009-upstream-redirection-is-recorded-not-hidden.md).
 - [x] Benchmark harnesses for four of the five figures, each behind a documented command.
-- [ ] **Run `demo/run.sh` on the box.** Record, verify, replay, fork, report.
+- [x] **Run `demo/run.sh` on the box.** Record, verify, replay, fork, report — all green.
+- [x] Fill in `docs/benchmarking.md` from the box, and quote those numbers in the README.
 - [ ] **Anchor one run for real** and verify its inclusion from a second machine.
-- [ ] Fill in `docs/benchmarking.md` from the box, then quote those numbers in the README.
 - [ ] README with the demo GIF, and the verified related-work table from W0.
 - [ ] Tag `v0.1.0`, once the above are true rather than expected to be.
 

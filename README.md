@@ -3,9 +3,9 @@
 Deterministic record and replay for AI agents — with a proof the replay is real.
 
 **Status: W4 of 8, v0.1 in preparation.** Recording, replay, forking, transparency anchoring and the
-static trace report are implemented and tested. The demo has not yet been run end to end on the
-target box, and no benchmark figure is published until it is — see
-[docs/roadmap.md](docs/roadmap.md).
+static trace report are implemented, tested, and verified end to end on Linux — the demo below is the
+run that verifies them. Outstanding before the tag: a live transparency anchor, the demo GIF, and the
+related-work table — see [docs/roadmap.md](docs/roadmap.md).
 
 Linux only. `hark` depends on network namespaces, Landlock and seccomp; there is no Windows or macOS
 port planned.
@@ -99,7 +99,7 @@ leak was `hark-placeholder-01J8X-api_key`. The real credential is substituted at
 allowed hosts only, so it was never in the agent's address space to lose. **Two independent controls,
 neither of which the agent could switch off, both visible in the same artifact.**
 
-Then the artifact earns its name:
+Then the artifact earns its name, and the whole loop above takes about a second:
 
 ```sh
 hark verify  incident.hark      # chain, root, signature, transparency anchor
@@ -115,10 +115,33 @@ counterfactual is answered with a run rather than an argument:
 
 ```text
 FORKED  provably identical prefix, live suffix
+  parent root  19b3ed6ada2790ac91af1f4de360f926753cc8ece4fc9e112f2924dad6de16f2
+  branch at    event 11, after 11 verified actions
+  patch        strip the injected instruction from the fetched briefing
 ```
 
 Never bit-exact. Everything after the branch point is a fresh run, and the output says so —
 [ADR-0008](docs/decisions/0008-forks-have-a-verified-prefix-and-a-live-suffix.md).
+
+## What it costs
+
+Measured on a 2 vCPU shared Azure instance; method and full tables in
+[docs/benchmarking.md](docs/benchmarking.md), and no number appears here that is not produced by a
+command written down there.
+
+| | |
+| --- | --- |
+| Mediation, versus dialling the same stub directly | **+0.18 ms** at p50, +0.28 ms at p99 |
+| Replaying a run that waited 0.9 s on its model call | **1052 ms → 145 ms** |
+| Verifying a 100,000-event bundle | 276 ms, 188 MB/s |
+| Proving one event happened | 448 bytes, 14 hashes |
+| A bundle, per 1,000 events | 518 KB raw, 79 KB gzipped |
+
+The replay figure is the one to read carefully. Replay saves exactly the upstream latency it does not
+wait for, so the ratio is a property of the recording rather than of hark: an agent making thirty
+model calls saves thirty times as much. What is constant is the floor — **a replay costs what
+starting the agent costs**, around 145 ms of namespace setup and interpreter start, and almost
+nothing else.
 
 ## Quickstart
 
