@@ -324,6 +324,11 @@ func cmdFork(args []string) error {
 		EndedAt: time.Now().UnixNano(), ExitCode: code, Reason: reason,
 	})
 
+	if ref := rec.Leaked(); ref != "" {
+		return fmt.Errorf("hark fork: the real value of %q reached the recorder, so %s was not sealed",
+			ref, forkPath)
+	}
+
 	signedAt := time.Now().UnixNano()
 	entry, index := anchorSeal(key, *anchor, *rekorURL, id, w, signedAt)
 
@@ -389,7 +394,7 @@ func (r *forkRecorder) Append(kind logfmt.Kind, payload any) (uint64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	seq, err := r.w.Append(kind, uint64(time.Since(r.start).Nanoseconds()), payload)
+	seq, err := r.appendLocked(kind, payload)
 	if err != nil {
 		return seq, err
 	}

@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -262,6 +264,13 @@ func cmdRun(args []string) error {
 		EndedAt: time.Now().UnixNano(), ExitCode: code, Reason: reason,
 	})
 
+	if ref := rec.Leaked(); ref != "" {
+		// Left unsealed on purpose: the bundle has a hole where an event was
+		// refused, and a footer would claim a completeness it does not have.
+		return fmt.Errorf("hark run: the real value of %q reached the recorder, so %s was not sealed",
+			ref, bundlePath)
+	}
+
 	signedAt := time.Now().UnixNano()
 	entry, index := anchorSeal(key, *anchor, *rekorURL, id, w, signedAt)
 
@@ -320,18 +329,52 @@ func anchorSeal(key *signer.Key, want bool, logURL, runID string, w *bundle.Writ
 	return entry.UUID, entry.LogIndex
 }
 
-// buildEnv assembles the agent's environment: the host's, plus placeholder
-// credentials, plus the trust-store variables pointing at this run's CA.
+// buildEnv assembles the agent's environment: the supervisor's, with the
+// placeholder credentials and this run's CA *replacing* anything of the same
+// name rather than being appended after it.
 //
-// Three variables rather than one because there is no single convention --
+// Replacing is the whole point, and getting it wrong is not a subtle bug.
+// Appending looks equivalent because most tools take the last value of a
+// duplicated variable -- but CPython's convertenviron keeps the *first*, so an
+// operator running `API_KEY=... hark run` handed the agent the real credential,
+// which then travelled into the bundle. The demo caught it on its first
+// complete run.
+//
+// The same hazard applies to the trust-store variables: an inherited
+// SSL_CERT_FILE would win over this run's CA and the agent would fail its
+// handshake against a mediator it had no reason to trust.
+//
+// Three CA variables rather than one because there is no single convention --
 // OpenSSL, Python's requests, and Node each read a different name.
 func buildEnv(placeholders map[string]string, caPath string) []string {
-	env := os.Environ()
+	ours := make(map[string]string, len(placeholders)+4)
 	for k, v := range placeholders {
-		env = append(env, k+"="+v)
+		ours[k] = v
 	}
 	for _, k := range []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "CURL_CA_BUNDLE"} {
-		env = append(env, k+"="+caPath)
+		ours[k] = caPath
+	}
+
+	env := make([]string, 0, len(os.Environ())+len(ours))
+	for _, kv := range os.Environ() {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok {
+			if _, replaced := ours[name]; replaced {
+				continue
+			}
+		}
+		env = append(env, kv)
+	}
+
+	// Sorted, so two runs of the same agent differ in the values of these
+	// variables and not in their order.
+	names := make([]string, 0, len(ours))
+	for k := range ours {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		env = append(env, k+"="+ours[k])
 	}
 	return env
 }
@@ -346,12 +389,55 @@ type recorder struct {
 	w     *bundle.Writer
 	start time.Time
 	br    *broker.Broker
+
+	// leaked names the secret an event was found to carry, if one ever was.
+	leaked string
 }
 
 func (r *recorder) Append(kind logfmt.Kind, payload any) (uint64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.appendLocked(kind, payload)
+}
+
+// appendLocked writes one event, with the ordering lock already held. Separate
+// so a fork's recorder can observe the same event without taking the lock twice
+// or skipping the check below.
+func (r *recorder) appendLocked(kind logfmt.Kind, payload any) (uint64, error) {
+	// The last line of defence, and it should never fire.
+	//
+	// Substitution already happens on copies, so a real credential has no path
+	// into the log -- which is exactly why this is worth checking. A bundle is
+	// meant to be handed to a reviewer and anchored in a public log, and a
+	// silent leak into one is not a failure anyone notices in time. It fired for
+	// real once, on the demo's first complete run, when the agent turned out to
+	// be holding the operator's own credential.
+	//
+	// The event is dropped rather than written, and the run is failed at the
+	// end. Refusing to seal beats sealing something that cannot be shared.
+	if r.br != nil {
+		if body, err := logfmt.Marshal(payload); err == nil {
+			if ref, found := r.br.ContainsSecret(body); found {
+				if r.leaked == "" {
+					r.leaked = ref
+					fmt.Fprintf(os.Stderr,
+						"\nhark: refusing to log a %s event: it carries the real value of %q\n"+
+							"  this is a bug in hark, not in the agent. The run will not be sealed.\n",
+						kind, ref)
+				}
+				return 0, fmt.Errorf("recorder: %s event carries the real value of %q", kind, ref)
+			}
+		}
+	}
+
 	return r.w.Append(kind, uint64(time.Since(r.start).Nanoseconds()), payload)
+}
+
+// Leaked reports the secret a payload was found to carry, or "".
+func (r *recorder) Leaked() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.leaked
 }
 
 func (r *recorder) Sync() error {
