@@ -98,13 +98,17 @@ fi
 rm -f incident.hark fork.hark incident.hark.html fork.hark.html run-*-replay.hark
 
 say "1. recording the run"
+# -u keeps the agent's narration in order: Python block-buffers stdout when it
+# is not a terminal and never buffers stderr, so a recording of this would
+# otherwise show the failure line before the lines that explain it.
+#
 # The agent exits non-zero: its exfiltration attempt fails, because the
 # connection is denied at the boundary. hark passes the agent's exit code
 # through, so that failure is the expected outcome here rather than a problem.
 MODEL_API_KEY="demo-not-a-real-key-01J8X" \
   "$HARK" run -policy policy.toml -key demo.key -o incident.hark \
     -workdir "$WORK" "${UPSTREAM[@]}" "${ANCHOR[@]}" \
-    -- "$PY" "$WORK/agent.py" || true
+    -- "$PY" -u "$WORK/agent.py" || true
 
 say "2. what the bundle says"
 "$HARK" inspect incident.hark
