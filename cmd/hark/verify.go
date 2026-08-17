@@ -116,8 +116,14 @@ func checkAnchor(res *bundle.Result, offline bool, logURL string) anchorCheck {
 		return anchorCheck{rejected: true, line: "REJECTED -- " + err.Error()}
 	}
 
-	return anchorCheck{line: fmt.Sprintf("inclusion verified, index %d of %d (%s)",
-		entry.LogIndex, entry.Proof.TreeSize, logURL)}
+	// Two indices, and they are not interchangeable. The proof is against the
+	// leaf's position in the current tree; the entry's own index spans every
+	// shard the log has ever had and is far larger. Printing one "of" the other
+	// produces a line that contradicts itself, which for a verifier is the worst
+	// kind of output there is.
+	return anchorCheck{line: fmt.Sprintf(
+		"inclusion verified: leaf %d of %d in %s\n               entry %s (log index %d)",
+		entry.Proof.LogIndex, entry.Proof.TreeSize, logURL, entry.UUID, entry.LogIndex)}
 }
 
 func printVerify(res *bundle.Result, pinned, pinnedOK bool, anchor anchorCheck) {

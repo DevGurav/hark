@@ -53,8 +53,16 @@ func New(baseURL string) *Client {
 
 // Entry is a log entry as hark cares about it.
 type Entry struct {
-	UUID           string
-	LogIndex       int64
+	UUID string
+
+	// LogIndex is the entry's position across the whole log, spanning every
+	// shard it has ever had. It identifies the entry and is what a person looks
+	// it up by -- but it is *not* the index the inclusion proof is against, and
+	// mixing the two produces a report that contradicts itself: a public log has
+	// long since passed the point where the global index exceeds the current
+	// tree's size.
+	LogIndex int64
+
 	LogID          string
 	IntegratedTime int64
 
@@ -68,6 +76,9 @@ type Entry struct {
 
 // InclusionProof is the log's evidence that an entry is in its tree.
 type InclusionProof struct {
+	// LogIndex here is the leaf's position within TreeSize, in the currently
+	// active shard -- a different number from Entry.LogIndex, and the only one
+	// the proof arithmetic is valid against.
 	LogIndex   int64
 	RootHash   []byte
 	TreeSize   int64
