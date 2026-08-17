@@ -33,9 +33,15 @@ die() { printf 'bench: %s\n' "$*" >&2; exit 1; }
 [ "$(uname -s)" = "Linux" ] || die "hark runs on Linux only"
 [ "$(id -u)" = "0" ] || die "run as root: the launcher creates network namespaces"
 
-( cd "$ROOT" && go build -o "$BENCH/hark" ./cmd/hark )
-cp "$DEMO"/{agent.py,briefing.html} "$BENCH/"
-mkdir -p "$WORK" && cp "$DEMO/agent.py" "$WORK/agent.py"
+# Staged exactly as the demo stages it, and for the same reason: the agent runs
+# as uid 0 with every capability dropped, so anything it needs has to sit
+# somewhere world-traversable rather than in a home directory.
+( cd "$ROOT" && go build -o "$WORK/hark" ./cmd/hark )
+mkdir -p "$WORK"
+cp "$DEMO/agent.py" "$WORK/agent.py"
+rm -rf "$WORK/shim" && cp -r "$ROOT/shim" "$WORK/shim"
+chmod -R a+rX "$WORK"
+HARK="$WORK/hark"
 
 if [ ! -f "$DEMO/stub.pem" ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
@@ -62,21 +68,35 @@ elapsed() {
 record_once() {
   rm -f "$BENCH/bench.hark"
   MODEL_API_KEY="bench-not-a-real-key" \
-    "$BENCH/hark" run -policy "$DEMO/policy.toml" -o "$BENCH/bench.hark" \
+    "$HARK" run -policy "$DEMO/policy.toml" -o "$BENCH/bench.hark" \
       -workdir "$WORK" "${UPSTREAM[@]}" -- "$PY" "$WORK/agent.py"
 }
 
 replay_once() {
-  "$BENCH/hark" replay -o "$BENCH/bench-replay.hark" "$BENCH/bench.hark"
+  "$HARK" replay -o "$BENCH/bench-replay.hark" "$BENCH/bench.hark"
+}
+
+# A failed run measures nothing, and elapsed() discards output by design, so the
+# shape of the recording is checked once before any timing is believed. This
+# doubles as the discarded warm-up.
+check_once() {
+  record_once >"$BENCH/record.log" 2>&1 || true
+  if ! "$HARK" verify -offline -quiet "$BENCH/bench.hark"; then
+    sed -n "1,20p" "$BENCH/record.log" >&2
+    die "the recorded run did not seal; there is nothing to measure"
+  fi
+  if ! "$HARK" replay -o "$BENCH/bench-replay.hark" "$BENCH/bench.hark" >"$BENCH/replay.log" 2>&1; then
+    sed -n "1,20p" "$BENCH/replay.log" >&2
+    die "the run does not replay equal; a ratio over a divergent replay is meaningless"
+  fi
 }
 
 stats() { # median and max of the numbers on stdin
   sort -n | awk '{ v[NR]=$1 } END { printf "%d %d", v[int((NR+1)/2)], v[NR] }'
 }
 
-printf 'discarding one warm-up of each\n'
-elapsed record_once >/dev/null
-elapsed replay_once >/dev/null
+printf 'checking the run records and replays before timing anything\n'
+check_once
 
 printf 'recording %s runs (stub delay %ss)\n' "$RUNS" "$DELAY"
 rec_times=""
@@ -94,7 +114,7 @@ read -r rec_med rec_max <<<"$(printf "$rec_times" | stats)"
 read -r rep_med rep_max <<<"$(printf "$rep_times" | stats)"
 # awk reads to the end: exiting at the first match closes the pipe, verify dies
 # of SIGPIPE, and pipefail turns a finished measurement into a failed script.
-events="$("$BENCH/hark" verify -offline "$BENCH/bench.hark" | awk '/events/ && !seen {print $2; seen=1}')"
+events="$("$HARK" verify -offline "$BENCH/bench.hark" | awk '/events/ && !seen {print $2; seen=1}')"
 
 cat <<REPORT
 
@@ -113,4 +133,4 @@ shared, kernel, distribution, Go version, and whether the box was idle. On a
 shared-vCPU cloud instance, publish the range rather than a single figure.
 REPORT
 
-rm -f "$BENCH/bench-replay.hark" "$BENCH/agent.py" "$BENCH/briefing.html"
+rm -f "$BENCH/bench-replay.hark" "$BENCH/record.log" "$BENCH/replay.log"
