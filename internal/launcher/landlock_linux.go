@@ -124,6 +124,47 @@ type pathBeneathAttr struct {
 type FSRule struct {
 	Path  string
 	Write bool
+
+	// fd is a handle opened by OpenRules, so the rule can be registered after
+	// privilege has been shed. Zero-valued means the path is opened when the
+	// rule is added.
+	fd     int
+	opened bool
+}
+
+// OpenRules opens a handle for every rule, and must be called while the caller
+// can still traverse to those paths.
+//
+// O_PATH neither reads a file nor needs permission on it -- but *reaching* it
+// still needs search permission on every parent directory, and once
+// capabilities are dropped, uid 0 is subject to those permissions like anyone
+// else. A repository cloned into a mode-0750 home is the ordinary case that
+// makes this bite, and the symptom without it is the ruleset failing to
+// register a path the agent was supposed to be granted.
+//
+// The handles stay valid across the drop: an open file descriptor carries the
+// access already granted, which is the whole reason this ordering works.
+func OpenRules(rules []FSRule) ([]FSRule, error) {
+	out := make([]FSRule, 0, len(rules))
+	for _, rule := range rules {
+		fd, err := unix.Open(rule.Path, unix.O_PATH|unix.O_CLOEXEC, 0)
+		if err != nil {
+			CloseRules(out)
+			return nil, fmt.Errorf("landlock: opening %q for a rule: %w", rule.Path, err)
+		}
+		rule.fd, rule.opened = fd, true
+		out = append(out, rule)
+	}
+	return out, nil
+}
+
+// CloseRules releases handles from OpenRules.
+func CloseRules(rules []FSRule) {
+	for _, rule := range rules {
+		if rule.opened {
+			unix.Close(rule.fd)
+		}
+	}
 }
 
 // ApplyFilesystem builds a ruleset from the given paths and enforces it on the
@@ -169,7 +210,7 @@ func ApplyFilesystem(rules []FSRule) error {
 		if rule.Write {
 			allowed = writeRights
 		}
-		if err := addPathRule(rulesetFD, rule.Path, allowed); err != nil {
+		if err := addPathRule(rulesetFD, rule, allowed); err != nil {
 			return err
 		}
 	}
@@ -199,15 +240,24 @@ func ApplyFilesystem(rules []FSRule) error {
 // "invalid argument".
 const fileRights = uint64(fsExecute | fsWriteFile | fsReadFile | fsTruncate | fsIoctlDev)
 
-func addPathRule(rulesetFD int, path string, allowed uint64) error {
+func addPathRule(rulesetFD int, rule FSRule, allowed uint64) error {
+	path := rule.Path
+
 	// O_PATH gets a handle for naming purposes only: it neither reads the file
 	// nor requires permission to. That matters because a rule may name a
 	// directory the supervisor has no business opening for real.
-	pathFD, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return fmt.Errorf("landlock: opening %q for a rule: %w", path, err)
+	//
+	// A handle from OpenRules is used when there is one, because by this point
+	// the caller may no longer be able to reach the path at all.
+	pathFD := rule.fd
+	if !rule.opened {
+		fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return fmt.Errorf("landlock: opening %q for a rule: %w", path, err)
+		}
+		pathFD = fd
+		defer unix.Close(pathFD)
 	}
-	defer unix.Close(pathFD)
 
 	var st unix.Stat_t
 	if err := unix.Fstat(pathFD, &st); err != nil {

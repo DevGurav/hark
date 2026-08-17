@@ -37,12 +37,20 @@ command -v "$PY" >/dev/null || die "python3 is needed for the agent and the stub
 say "building hark"
 ( cd "$ROOT" && go build -o "$DEMO/hark" ./cmd/hark )
 
-# The agent runs with a Landlock-scoped filesystem, so its source has to live
-# somewhere the policy grants. Copying rather than granting the repo keeps the
-# policy honest: the agent gets its own directory and nothing else.
-say "staging the agent at $WORK"
+# Everything the contained agent touches is staged under $WORK, and the binary
+# runs from there so it finds the shim beside itself.
+#
+# Not tidiness. The agent runs as uid 0 with every capability dropped, so it is
+# subject to ordinary file permissions -- and a clone inside a mode-0750 home
+# directory is unreachable to it no matter what the policy says. $WORK is
+# world-traversable, which is what makes the demo work from a clone.
+say "staging the agent and the shim at $WORK"
 mkdir -p "$WORK"
 cp agent.py "$WORK/agent.py"
+cp "$DEMO/hark" "$WORK/hark"
+rm -rf "$WORK/shim" && cp -r "$ROOT/shim" "$WORK/shim"
+chmod -R a+rX "$WORK"
+HARK="$WORK/hark"
 
 # One certificate for both stub hostnames. The mediator dials the redirected
 # address but still checks the name the agent asked for, so the redirection does
@@ -73,7 +81,7 @@ done
 
 if [ ! -f demo.key ]; then
   say "generating a signing key"
-  ./hark keygen -out demo.key
+  "$HARK" keygen -out demo.key
 fi
 
 UPSTREAM=(-upstream "docs.example=$STUB_ADDR" -upstream "model.example=$STUB_ADDR" -upstream-ca stub.pem)
@@ -91,12 +99,12 @@ say "1. recording the run"
 # connection is denied at the boundary. hark passes the agent's exit code
 # through, so that failure is the expected outcome here rather than a problem.
 MODEL_API_KEY="demo-not-a-real-key-01J8X" \
-  ./hark run -policy policy.toml -key demo.key -o incident.hark \
+  "$HARK" run -policy policy.toml -key demo.key -o incident.hark \
     -workdir "$WORK" "${UPSTREAM[@]}" "${ANCHOR[@]}" \
     -- "$PY" "$WORK/agent.py" || true
 
 say "2. what the bundle says"
-./hark inspect incident.hark
+"$HARK" inspect incident.hark
 
 cat <<'NOTE'
 
@@ -111,24 +119,24 @@ substituted at the boundary and never enters the agent's address space.
 NOTE
 
 say "3. verifying"
-./hark verify incident.hark
+"$HARK" verify incident.hark
 
 say "4. replaying -- no network, no credentials, no side effects"
-time ./hark replay incident.hark
+time "$HARK" replay incident.hark
 
 # The branch point is the fetch of the poisoned page: the first request to
 # docs.example. Forking there and stripping the injection asks whether the page
 # was the cause, rather than patching the conclusion.
-AT="$(./hark inspect incident.hark | awk '$2=="LlmRequest" && /docs.example/{print $1; exit}')"
+AT="$("$HARK" inspect incident.hark | awk '$2=="LlmRequest" && /docs.example/{print $1; exit}')"
 [ -n "$AT" ] || die "no request to docs.example in the recording; did the run fail?"
 
 say "5. forking at event $AT with the injection stripped"
 MODEL_API_KEY="demo-not-a-real-key-01J8X" \
-  ./hark fork -at "$AT" -patch strip-injection.json -key demo.key -o fork.hark \
+  "$HARK" fork -at "$AT" -patch strip-injection.json -key demo.key -o fork.hark \
     "${UPSTREAM[@]}" incident.hark
 
 say "6. what the fork did instead"
-./hark inspect fork.hark
+"$HARK" inspect fork.hark
 
 cat <<'NOTE'
 
@@ -141,7 +149,7 @@ because nothing tried to leave.
 NOTE
 
 say "7. rendering both runs"
-./hark report -offline incident.hark
-./hark report -offline fork.hark
+"$HARK" report -offline incident.hark
+"$HARK" report -offline fork.hark
 
 printf '\nOpen incident.hark.html and fork.hark.html side by side.\n'

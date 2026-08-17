@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"syscall"
 
@@ -143,6 +144,9 @@ func Launch(s Spec) (*Handle, error) {
 		// common reason this fails on a new machine, so the error says where to
 		// look.
 		return nil, fmt.Errorf("launcher: %w (check /sys/kernel/security/lsm)", err)
+	}
+	if err := checkReachable(append(append([]string{}, s.ReadPaths...), s.WritePaths...)); err != nil {
+		return nil, err
 	}
 
 	// Clear anything a previously killed supervisor left behind. Rules outlive
@@ -335,10 +339,6 @@ func Init() error {
 	//
 	// Neither of the steps that follow needs a capability: Landlock is designed
 	// for unprivileged callers, and seccomp only requires NO_NEW_PRIVS.
-	if err := DropCapabilities(); err != nil {
-		return err
-	}
-
 	rules := make([]FSRule, 0, len(spec.ReadPaths)+len(spec.WritePaths)+1)
 	for _, p := range spec.ReadPaths {
 		rules = append(rules, FSRule{Path: p})
@@ -358,7 +358,22 @@ func Init() error {
 	for _, p := range spec.WritePaths {
 		rules = append(rules, FSRule{Path: p, Write: true})
 	}
-	if err := ApplyFilesystem(rules); err != nil {
+
+	// Opened before the drop, enforced after it. Reaching a path needs search
+	// permission on every parent directory, and an unprivileged uid 0 does not
+	// have it in another user's home -- so the handles are taken while this
+	// process still holds CAP_DAC_OVERRIDE, and the ruleset is built from them.
+	opened, err := OpenRules(rules)
+	if err != nil {
+		return err
+	}
+	defer CloseRules(opened)
+
+	if err := DropCapabilities(); err != nil {
+		return err
+	}
+
+	if err := ApplyFilesystem(opened); err != nil {
 		return err
 	}
 	if err := ApplySeccomp(); err != nil {
@@ -370,6 +385,80 @@ func Init() error {
 		env = os.Environ()
 	}
 	return syscall.Exec(binary, spec.Argv, env)
+}
+
+// checkReachable refuses a run whose granted paths the agent could not reach
+// anyway.
+//
+// The agent runs as uid 0 with every capability dropped, which means it is
+// subject to ordinary file permissions -- CAP_DAC_OVERRIDE is what normally
+// exempts root from them, and it is gone by design. A clone in a mode-0750 home
+// directory is therefore unreadable to it, however generous the policy is.
+//
+// Landlock only ever removes access; it cannot grant past DAC. So a policy that
+// names such a path is not wrong so much as unachievable, and saying which
+// directory blocks it beats letting the agent fail later with an import error.
+func checkReachable(paths []string) error {
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			// A path that does not exist is a different problem, reported where
+			// it is discovered rather than guessed at here.
+			continue
+		}
+		if blocker, err := firstUnsearchable(path); err != nil {
+			return err
+		} else if blocker != "" {
+			return fmt.Errorf(
+				"launcher: the agent could not reach %s: %s is not searchable by an unprivileged process, "+
+					"and the agent runs with every capability dropped. Move what the agent needs somewhere "+
+					"world-traversable, or loosen that directory", path, blocker)
+		}
+	}
+	return nil
+}
+
+// firstUnsearchable walks the ancestors of path and returns the first directory
+// a capability-less uid 0 could not traverse, or "" when the whole chain is
+// reachable.
+func firstUnsearchable(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("launcher: resolving %q: %w", path, err)
+	}
+
+	var ancestors []string
+	for p := abs; ; p = filepath.Dir(p) {
+		ancestors = append([]string{p}, ancestors...)
+		if p == "/" || filepath.Dir(p) == p {
+			break
+		}
+	}
+
+	for _, p := range ancestors {
+		var st unix.Stat_t
+		if err := unix.Stat(p, &st); err != nil {
+			return "", nil // reported elsewhere
+		}
+		if st.Mode&unix.S_IFMT != unix.S_IFDIR {
+			continue
+		}
+		// The agent is uid 0, gid 0. Owner bits apply when root owns the
+		// directory, group bits when root's group does, other bits otherwise --
+		// the ordinary DAC precedence, with no capability to fall back on.
+		var searchable bool
+		switch {
+		case st.Uid == 0:
+			searchable = st.Mode&unix.S_IXUSR != 0
+		case st.Gid == 0:
+			searchable = st.Mode&unix.S_IXGRP != 0
+		default:
+			searchable = st.Mode&unix.S_IXOTH != 0
+		}
+		if !searchable {
+			return fmt.Sprintf("%s (mode %04o, owner uid %d)", p, st.Mode&0o7777, st.Uid), nil
+		}
+	}
+	return "", nil
 }
 
 // applyMounts points the agent's resolver at the mediator.
