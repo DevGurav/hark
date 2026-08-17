@@ -141,7 +141,7 @@ because nothing tried to leave.
 NOTE
 
 say "7. rendering both runs"
-./hark report incident.hark -offline
-./hark report fork.hark -offline
+./hark report -offline incident.hark
+./hark report -offline fork.hark
 
 printf '\nOpen incident.hark.html and fork.hark.html side by side.\n'

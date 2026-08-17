@@ -67,3 +67,22 @@ jobs:
           if [ "$rc" -ne 3 ]; then
             echo "expected exit 3 for a truncated bundle, got $rc"; exit 1
           fi
+
+      # The reader-facing commands, and the refusals that happen before a fork
+      # starts a run. Both are CLI-level behaviour that no unit test reaches,
+      # and neither needs a namespace.
+      - name: Report and fork acceptance
+        run: |
+          set -eux
+          ./hark report -offline -o trace.html good.hark
+          grep -q 'badge sealed' trace.html
+          if grep -qE '<script|<link|src=' trace.html; then
+            echo "the report is not self-contained"; exit 1
+          fi
+
+          if ./hark fork -at 99 good.hark; then
+            echo "forked past the end of the recording"; exit 1
+          fi
+          if ./hark fork -at 5 -patch demo/strip-injection.json good.hark; then
+            echo "patched an event that is not a request"; exit 1
+          fi
