@@ -27,8 +27,13 @@ import (
 // chunk boundaries survive, that the replayed run records its own correlated
 // events, and that a miss fails loudly.
 type canned struct {
-	queue     []*PlaybackResponse
-	lookups   int
+	queue   []*PlaybackResponse
+	lookups int
+
+	// afterQueue is what an exhausted queue returns. Nil means "no recorded
+	// response", the replay case; ErrLive is the fork case.
+	afterQueue error
+
 	canonSeen [][]byte
 }
 
@@ -36,6 +41,9 @@ func (c *canned) Lookup(canonical []byte) (*PlaybackResponse, error) {
 	c.canonSeen = append(c.canonSeen, canonical)
 	if c.lookups >= len(c.queue) {
 		c.lookups++
+		if c.afterQueue != nil {
+			return nil, c.afterQueue
+		}
 		return nil, errors.New("no recorded response for this request")
 	}
 	res := c.queue[c.lookups]
@@ -97,6 +105,58 @@ func TestPlaybackServesRecordedResponseWithoutDialling(t *testing.T) {
 	}
 }
 
+// A fork hands over from the recording to the live upstream part-way through a
+// run, and the agent is under no obligation to open a fresh connection when it
+// does. Both exchanges here travel on one keep-alive connection: the first is
+// served from the recording, the second is dialled for real.
+func TestPlaybackHandsOverToTheUpstreamMidConnection(t *testing.T) {
+	upstream := httpsUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = io.WriteString(w, "live answer")
+	})
+
+	pb := &canned{
+		queue: []*PlaybackResponse{{
+			Status:  200,
+			Headers: map[string]string{"Content-Type": "text/plain"},
+			Chunks:  [][]byte{[]byte("recorded answer")},
+		}},
+		afterQueue: ErrLive,
+	}
+
+	var dials int
+	m, rec := start(t, Config{
+		Playback: pb,
+		DialUpstream: func(string) (net.Conn, error) {
+			dials++
+			return tls.Dial("tcp", upstream, &tls.Config{InsecureSkipVerify: true})
+		},
+	})
+
+	client := agentClient(t, m)
+
+	if body, status := doRequestWith(t, client, "POST", "/first", `{"a":1}`); status != 200 || body != "recorded answer" {
+		t.Fatalf("prefix exchange: status %d, body %q", status, body)
+	}
+	if dials != 0 {
+		t.Fatal("the prefix dialled upstream")
+	}
+
+	if body, status := doRequestWith(t, client, "POST", "/second", `{"a":2}`); status != 200 || body != "live answer" {
+		t.Fatalf("live exchange: status %d, body %q", status, body)
+	}
+	if dials != 1 {
+		t.Fatalf("expected exactly one dial after the handover, got %d", dials)
+	}
+
+	// Both halves are recorded. A forked run is a recording in its own right, so
+	// the live suffix has to land in the log exactly as a fresh run would.
+	waitFor(t, func() bool { return len(rec.find(logfmt.KindLLMResponseEnd)) == 2 })
+	if got := len(rec.find(logfmt.KindLLMRequest)); got != 2 {
+		t.Fatalf("recorded %d requests, expected 2", got)
+	}
+}
+
 // A request the recording does not contain must fail the replay rather than be
 // answered with something approximate.
 func TestPlaybackRefusesUnknownRequest(t *testing.T) {
@@ -126,7 +186,12 @@ func TestPlaybackRefusesUnknownRequest(t *testing.T) {
 // run's CA, and returns the body and status.
 func doRequest(t *testing.T, m *Mediator, method, path, body string) (string, int) {
 	t.Helper()
-	resp, err := doRequestAllowingError(t, m, method, path, body)
+	return doRequestWith(t, agentClient(t, m), method, path, body)
+}
+
+func doRequestWith(t *testing.T, client *http.Client, method, path, body string) (string, int) {
+	t.Helper()
+	resp, err := send(t, client, method, path, body)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
@@ -137,12 +202,20 @@ func doRequest(t *testing.T, m *Mediator, method, path, body string) (string, in
 
 func doRequestAllowingError(t *testing.T, m *Mediator, method, path, body string) (*http.Response, error) {
 	t.Helper()
+	return send(t, agentClient(t, m), method, path, body)
+}
+
+// agentClient is an HTTP client that trusts the run's CA and reaches the
+// mediator the way a contained agent does. Returned rather than built per
+// request so a test can keep one connection alive across several exchanges.
+func agentClient(t *testing.T, m *Mediator) *http.Client {
+	t.Helper()
 
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(m.CACertPEM()) {
 		t.Fatal("could not trust the mediator CA")
 	}
-	client := &http.Client{
+	return &http.Client{
 		Transport: &http.Transport{
 			DialTLSContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return tls.Dial("tcp", m.TLSAddr().String(), &tls.Config{
@@ -152,7 +225,10 @@ func doRequestAllowingError(t *testing.T, m *Mediator, method, path, body string
 		},
 		Timeout: 20 * time.Second,
 	}
+}
 
+func send(t *testing.T, client *http.Client, method, path, body string) (*http.Response, error) {
+	t.Helper()
 	req, err := http.NewRequest(method, "https://"+allowedHost+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)

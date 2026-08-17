@@ -3,6 +3,7 @@ package mediator
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,24 +53,44 @@ func (m *Mediator) forward(conn net.Conn, host string) {
 
 	agentReader := bufio.NewReader(agent)
 
-	// In playback there is no upstream at all. That is the property worth
-	// stating: a replayed run opens no outbound connection, so it cannot have
-	// side effects, cannot cost money, and cannot be affected by whether the
-	// endpoint happens to be up.
-	if m.cfg.Playback != nil {
-		for {
-			_ = agent.SetReadDeadline(time.Now().Add(forwardTimeout))
-			req, err := http.ReadRequest(agentReader)
-			if err != nil {
-				return
-			}
-			if err := m.exchange(req, host, nil, nil, agent); err != nil {
-				return
-			}
+	// The upstream connection is opened on demand, not here.
+	//
+	// A replayed run must open none at all -- that is what makes it free of side
+	// effects and independent of whether the endpoint is still up -- and a forked
+	// run must open one only once it passes its fork point. Both are properties of
+	// when the dial happens, so the dial is deferred to the first exchange that
+	// actually needs it.
+	up := &upstream{dial: m.cfg.DialUpstream, host: host}
+	defer up.close()
+
+	for {
+		_ = agent.SetReadDeadline(time.Now().Add(forwardTimeout))
+		req, err := http.ReadRequest(agentReader)
+		if err != nil {
+			return // agent closed the connection, or sent something unparseable
+		}
+
+		if err := m.exchange(req, host, up, agent); err != nil {
+			return
 		}
 	}
+}
 
-	dial := m.cfg.DialUpstream
+// upstream is one lazily-dialled connection to the real host, reused across the
+// requests the agent sends on a single connection.
+type upstream struct {
+	dial func(string) (net.Conn, error)
+	host string
+
+	conn   net.Conn
+	reader *bufio.Reader
+}
+
+func (u *upstream) get() (net.Conn, *bufio.Reader, error) {
+	if u.conn != nil {
+		return u.conn, u.reader, nil
+	}
+	dial := u.dial
 	if dial == nil {
 		dial = func(h string) (net.Conn, error) {
 			return tls.Dial("tcp", net.JoinHostPort(h, "443"), &tls.Config{
@@ -79,33 +100,22 @@ func (m *Mediator) forward(conn net.Conn, host string) {
 			})
 		}
 	}
-
-	upstream, err := dial(host)
+	conn, err := dial(u.host)
 	if err != nil {
-		m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{
-			Error: "connecting to " + host + ": " + err.Error(),
-		})
-		return
+		return nil, nil, err
 	}
-	defer upstream.Close()
+	u.conn, u.reader = conn, bufio.NewReader(conn)
+	return u.conn, u.reader, nil
+}
 
-	upstreamReader := bufio.NewReader(upstream)
-
-	for {
-		_ = agent.SetReadDeadline(time.Now().Add(forwardTimeout))
-		req, err := http.ReadRequest(agentReader)
-		if err != nil {
-			return // agent closed the connection, or sent something unparseable
-		}
-
-		if err := m.exchange(req, host, upstream, upstreamReader, agent); err != nil {
-			return
-		}
+func (u *upstream) close() {
+	if u.conn != nil {
+		u.conn.Close()
 	}
 }
 
 // exchange records and forwards one request/response pair.
-func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, upstreamReader *bufio.Reader, agent net.Conn) error {
+func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent net.Conn) error {
 	body, err := io.ReadAll(req.Body)
 	req.Body.Close()
 	if err != nil {
@@ -136,9 +146,20 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 	m.record(logfmt.KindLLMRequest, recorded)
 
 	// Playback answers from the recording and never dials out.
+	//
+	// Asked per exchange rather than once per connection, because a fork changes
+	// its answer part-way through a run and the agent is under no obligation to
+	// open a fresh connection at that moment.
 	if m.cfg.Playback != nil {
 		res, err := m.cfg.Playback.Lookup(canonical)
-		if err != nil {
+		switch {
+		case err == nil:
+			return m.relayRecorded(res, agent, exchange)
+		case errors.Is(err, ErrLive):
+			// A fork past its branch point. Fall through to the live path: the
+			// request has already been recorded, so the child bundle is a
+			// recording in its own right from here on.
+		default:
 			// Refusing is the point. Serving a near-miss would let replay report
 			// success while the agent saw an answer it never received.
 			m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{
@@ -146,7 +167,14 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 			})
 			return err
 		}
-		return m.relayRecorded(res, agent, exchange)
+	}
+
+	conn, upstreamReader, err := up.get()
+	if err != nil {
+		m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{
+			Error: "connecting to " + host + ": " + err.Error(), Exchange: exchange,
+		})
+		return err
 	}
 
 	outHeader, outBody := req.Header, body
@@ -173,13 +201,13 @@ func (m *Mediator) exchange(req *http.Request, host string, upstream net.Conn, u
 	// Connection reuse is the mediator's business, not the agent's.
 	out.Header.Del("Connection")
 
-	_ = upstream.SetWriteDeadline(time.Now().Add(forwardTimeout))
-	if err := out.Write(upstream); err != nil {
+	_ = conn.SetWriteDeadline(time.Now().Add(forwardTimeout))
+	if err := out.Write(conn); err != nil {
 		m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{Error: "sending upstream: " + err.Error()})
 		return err
 	}
 
-	_ = upstream.SetReadDeadline(time.Now().Add(forwardTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(forwardTimeout))
 	resp, err := http.ReadResponse(upstreamReader, out)
 	if err != nil {
 		m.record(logfmt.KindLLMResponseEnd, logfmt.LLMResponseEnd{Error: "reading the response: " + err.Error()})

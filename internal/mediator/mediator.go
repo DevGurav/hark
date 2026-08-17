@@ -49,6 +49,14 @@ type PlaybackResponse struct {
 	Error   string
 }
 
+// ErrLive is a Playback's way of saying "the recording stops here": this request
+// and everything after it must be dialled for real.
+//
+// Only a fork returns it. A plain replay never does, which is what keeps the
+// "a replayed run opens no outbound connection" property enforced by the code
+// rather than promised by the documentation.
+var ErrLive = errors.New("mediator: past the fork point, going live")
+
 // Recorder is the mediator's view of the event log.
 //
 // An interface rather than the bundle writer directly, so the mediator can be
