@@ -16,6 +16,12 @@
 # Generated proofs and reports
 proof*.json
 /trace-report/
+*.hark.html
+
+# Demo working files. The sources are tracked; what a run produces is not.
+/demo/hark
+/demo/stub.pem
+/demo/stub.key
 
 # Go
 *.test

@@ -1,0 +1,20 @@
+# The demo's policy: two hosts, and nothing else.
+#
+# An allowlist, not a policy language. Every rule is an exact match and anything
+# not written here is denied -- which is why evil.example does not appear, and
+# why the agent's attempt to reach it is a denial rather than an omission.
+
+allow_hosts = [
+  "docs.example",   # the briefing the agent was asked to summarise
+  "model.example",  # the model it asks what to do
+]
+
+# Read-only. The agent needs its own source; the interpreter's standard library
+# is granted by the launcher and is not policy's business.
+read_paths = ["/opt/hark-demo"]
+
+[secrets]
+# The agent's environment holds a placeholder under this name. The real value is
+# substituted at the boundary, on the way out, and only for allowed hosts -- so
+# an exfiltration attempt carries the placeholder even when it is not blocked.
+api_key = "MODEL_API_KEY"
