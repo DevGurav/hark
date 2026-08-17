@@ -62,8 +62,11 @@ if [ ! -f stub.pem ]; then
     -addext "subjectAltName=DNS:docs.example,DNS:model.example" 2>/dev/null
 fi
 
+# The stub's request log goes to a file rather than the terminal. It is useful
+# when something is wrong and noise when nothing is, and this script is meant to
+# be readable end to end -- and recordable.
 say "starting the stub upstream on $STUB_ADDR"
-"$PY" stub.py "$STUB_ADDR" &
+"$PY" stub.py "$STUB_ADDR" 2>"$DEMO/stub.log" &
 STUB_PID=$!
 trap 'kill $STUB_PID 2>/dev/null || true' EXIT
 

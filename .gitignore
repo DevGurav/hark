@@ -20,6 +20,7 @@ proof*.json
 
 # Demo working files. The sources are tracked; what a run produces is not.
 /demo/hark
+/demo/stub.log
 /demo/stub.pem
 /demo/stub.key
 
