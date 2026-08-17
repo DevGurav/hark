@@ -63,9 +63,11 @@ type Server struct {
 	// every connection handler -- an exported field would be a data race for
 	// any caller that set it a moment too late.
 	live func() bool
-
-	ln        net.Listener
-	closeOnce sync.Once
+	// ln and closed are guarded too. Serve binds on one goroutine while a
+	// deferred Close runs on another, and a run that fails early does exactly
+	// that -- Close can arrive before the listener exists.
+	ln     net.Listener
+	closed bool
 }
 
 // Values is the recorded clock and RNG history, grouped by source.
@@ -133,7 +135,18 @@ func (s *Server) Serve() error {
 	if err != nil {
 		return fmt.Errorf("shim: listening on %s: %w", s.path, err)
 	}
+
+	s.mu.Lock()
+	if s.closed {
+		// Closed before the bind completed. Undo it rather than leave a socket
+		// nobody owns: a later run would find a stale path and refuse to bind.
+		s.mu.Unlock()
+		ln.Close()
+		_ = os.Remove(s.path)
+		return nil
+	}
 	s.ln = ln
+	s.mu.Unlock()
 
 	// The agent runs as a different, unprivileged identity in a real run, so the
 	// socket has to be reachable by it.
@@ -150,14 +163,19 @@ func (s *Server) Serve() error {
 	}
 }
 
-// Close stops the server and removes the socket.
+// Close stops the server and removes the socket. Safe to call more than once,
+// and safe to call before Serve has bound.
 func (s *Server) Close() error {
-	s.closeOnce.Do(func() {
-		if s.ln != nil {
-			s.ln.Close()
-		}
-		_ = os.Remove(s.path)
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.ln != nil {
+		s.ln.Close()
+	}
+	_ = os.Remove(s.path)
 	return nil
 }
 
