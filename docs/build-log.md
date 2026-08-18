@@ -4,6 +4,46 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-18 — W5 closed: the cache hit needed no wait, just a repeat
+
+The previous entry left the TTLCache hit/miss interleaving blocked on Gemini's free-tier quota (5
+req/min): a single agent turn's retries already exhausted it, so a second, *different* question
+never got a chance to run. The fix wasn't patience — `Supervisor.handle`'s cache
+(`backend/agents/supervisor.py`) keys on `(message.strip(), data_version)`, so asking the *same*
+question a second time immediately after the first completes is a guaranteed cache hit that makes
+no request at all, regardless of quota state.
+
+One more external driver script (`demo_workload_cache.py`, the same non-invasive role as the
+others — UrbanHeat's source still untouched) asked "what should we do about ward L" twice in one
+process:
+
+```text
+[miss]  routed=planning  elapsed=88.46s   (7 real requests: routing, tool loop, one 503 retry)
+[hit]   routed=planning  elapsed=0.00s    (zero requests)
+```
+
+Both answers were byte-identical, and `hark inspect` confirms the shape: the last `LlmResponseEnd`
+(status 200, occurrence 1) is followed only by clock/random reads and `RunEnd` — no further
+`LlmRequest`, `DnsQuery`, or `EgressAttempt` for the second call. `hark replay` reproduced the
+asymmetry exactly:
+
+```text
+REPLAY-EQUAL  135 actions, digest 2d5c1549d109c327bd480916fc70f630fd0c4b744f240a8a6d6c3db176dc6537
+```
+
+This closes W5. All three items are now real, verified, zero-code-change recordings of an
+unmodified LangGraph app: streaming, MCP, and now a genuine cache-miss/cache-hit pair replaying
+identically down to which half made a network call at all.
+
+**Verified.** `hark verify` clean. `hark replay` reproduces the digest with no network calls.
+UrbanHeat's staging (`/opt/urbanheat`, the cloned `urbanheat-mumbai`, the run bundles) removed from
+the box afterward; nothing UrbanHeat-specific remains checked into hark's repo except the two
+roadmap/build-log entries describing what was verified.
+
+**Next.** W6 — the replay-fidelity suite.
+
+---
+
 ## 2026-08-18 — W5: UrbanHeat, zero code changes, real retry-on-429
 
 Pointed hark at a real target for the first time: UrbanHeat's Supervisor (four LangGraph agents,

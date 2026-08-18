@@ -121,7 +121,7 @@ to prevent. They are in [build-log.md](build-log.md).
 - [x] README with the demo GIF, recorded from the box with `asciinema` + `agg`.
 - [x] Tag `v0.1.0`.
 
-## W5 — a real workload · **in progress**
+## W5 — a real workload · **done**
 
 Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
 
@@ -138,9 +138,12 @@ Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
       `generativelanguage.googleapis.com`, both `REPLAY-EQUAL` on a second replay pass. Its
       retry-on-429 path fired for real (see build-log.md) and replayed byte-for-byte identical,
       with zero network calls made during replay.
-- [ ] The TTLCache hit/miss interleaving — blocked on Gemini's free-tier quota (5 req/min): the
-      retries inside one agent turn already exhaust it before a second question can run. Needs a
-      paid key or a slower cadence than tested so far.
+- [x] The TTLCache hit/miss interleaving. The fix for the earlier quota problem was not to wait
+      longer but to ask twice: the cache keys on `(message, data_version)`, so an identical
+      question asked immediately after the first completes is a guaranteed cache hit needing no
+      further request at all. Miss took 88s and 7 real requests (routing, tool loop, one 503
+      retry); the hit took 0.00s and made none. Replay reproduced both halves of that asymmetry
+      exactly — `REPLAY-EQUAL`, 135 actions.
 
 ## W6 — fidelity evidence · not started
 
