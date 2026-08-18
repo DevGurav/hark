@@ -6,9 +6,7 @@ independent version number, documented in [docs/protocol.md](docs/protocol.md).
 
 ## [Unreleased]
 
-v0.1 is implemented, tested, and verified end to end on Linux: a run is anchored in the public
-Sigstore log and its inclusion checked from a second machine. `v0.1.0` is tagged once the README
-carries its demo GIF — the only item still open. See [docs/roadmap.md](docs/roadmap.md).
+W5 work, ahead of the next tag. See [docs/roadmap.md](docs/roadmap.md).
 
 ### Added — W5 (in progress)
 
@@ -22,6 +20,14 @@ carries its demo GIF — the only item still open. See [docs/roadmap.md](docs/ro
   are recognised and recorded as `ToolCallRequest`/`ToolCallResult`, correlated by a new `Exchange`
   field on each, added alongside the ordinary `LlmRequest`/`LlmResponseChunk`/`LlmResponseEnd`
   transcript that already covers the same exchange and that replay already matches against.
+
+## [0.1.0] - 2026-08-18
+
+v0.1, standing alone as a complete artifact: containment, deterministic replay, forking, and
+tamper-evident audit anchored in a public transparency log. Verified end to end on kernel 6.17 —
+the demo records, verifies, replays equal, forks with an injection stripped, and renders; a run is
+anchored in the public Sigstore log and its inclusion checked from a second machine that never saw
+the run. See [docs/roadmap.md](docs/roadmap.md) and [docs/build-log.md](docs/build-log.md).
 
 ### Added — W4
 
@@ -65,7 +71,7 @@ carries its demo GIF — the only item still open. See [docs/roadmap.md](docs/ro
   connection at all.
 - The shim gained a fork mode: recorded clock and RNG values up to the branch point, real ones after.
 
-### Added
+### Added — W1–W3
 
 - Bundle format version 1: header, hash-chained frames, sealed footer.
 - `internal/hashchain` — domain-separated BLAKE3 leaf, node and chain constructions.

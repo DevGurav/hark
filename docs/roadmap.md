@@ -91,7 +91,7 @@ same digest, so a replayed bundle is itself a faithful recording.
 - [x] Replay equality: a digest over normalised actions, or the first divergent event named. Not the
       Merkle root — see the build log for why comparing roots could never work.
 
-## W4 — the incident, and v0.1 · **verified on the box**
+## W4 — the incident, and v0.1 · **shipped**
 
 Spec: [build/w4-v0.1.md](build/w4-v0.1.md)
 
@@ -118,8 +118,8 @@ to prevent. They are in [build-log.md](build-log.md).
       `108e9186…`, log index 2498575532; verified from a Windows laptop that never saw the run, with
       the proof recomputed locally against a tree that had grown since the anchor.
 - [x] The verified related-work table from W0.
-- [ ] README with the demo GIF.
-- [ ] Tag `v0.1.0`, once the above are true rather than expected to be.
+- [x] README with the demo GIF, recorded from the box with `asciinema` + `agg`.
+- [x] Tag `v0.1.0`.
 
 ## W5 — a real workload · **in progress**
 

@@ -2,13 +2,15 @@
 
 Deterministic record and replay for AI agents — with a proof the replay is real.
 
-**Status: W4 of 8, v0.1 in preparation.** Recording, replay, forking, transparency anchoring and the
-static trace report are implemented, tested, and verified end to end on Linux — the demo below is the
-run that verifies them. Outstanding before the tag: a live transparency anchor, the demo GIF, and the
-related-work table — see [docs/roadmap.md](docs/roadmap.md).
+**Status: v0.1.** Recording, replay, forking, transparency anchoring and the static trace report are
+implemented, tested, and verified end to end on Linux — a run has been anchored in the public
+Sigstore log and its inclusion checked from a second machine. See
+[docs/roadmap.md](docs/roadmap.md).
 
 Linux only. `hark` depends on network namespaces, Landlock and seccomp; there is no Windows or macOS
 port planned.
+
+![The incident, recorded end to end: an agent is prompt-injected, the exfiltration attempt is denied, the run replays exactly, and a fork with the injection stripped behaves differently.](demo/demo.gif)
 
 ---
 
