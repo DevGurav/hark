@@ -144,6 +144,12 @@ for an ordinary run. A bundle whose events name a host the mediator never dialle
 internally consistent and untrue, so the redirection is part of the run's recorded starting
 conditions — [ADR-0009](decisions/0009-upstream-redirection-is-recorded-not-hidden.md).
 
+`LlmRequest.Streaming` (key 8) means *the request asked for a streamed response* — an
+`Accept: text/event-stream` header, or a top-level `"stream": true` in a JSON body. It is a
+statement about the request, because that is what is knowable when the request event is written;
+what the response turned out to be is described by its chunks. The body is parsed rather than
+searched, so those words inside a prompt do not count.
+
 `SecretInjected` records a substitution by reference only; see [Secrets](#secrets) below.
 
 ## Event kinds

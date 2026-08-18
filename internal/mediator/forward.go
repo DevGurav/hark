@@ -3,11 +3,13 @@ package mediator
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/DevGurav/hark/internal/hashchain"
@@ -141,6 +143,7 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 		Body:       body,
 		RequestKey: key.Hash[:],
 		Occurrence: key.Occurrence,
+		Streaming:  asksForStream(req.Header, body),
 		Exchange:   exchange,
 	}
 	m.record(logfmt.KindLLMRequest, recorded)
@@ -398,6 +401,35 @@ func (m *Mediator) keyFor(canonical []byte) reqkey.Key {
 		m.occurrences = make(map[hashchain.Hash]uint32)
 	}
 	return reqkey.Derive(canonical, m.occurrences)
+}
+
+// asksForStream reports whether a request asked for a streamed response.
+//
+// Two signals, because providers split on which they use: an SSE client sends
+// `Accept: text/event-stream`, and the major model APIs put `"stream": true` in
+// the JSON body.
+//
+// Recorded on the request because that is the moment it is knowable -- what the
+// response turned out to be is described by its chunks. The distinction matters
+// to a reader scanning a trace: a request that asked for a stream and came back
+// in one chunk is a different event from one that never asked.
+//
+// The body is parsed rather than searched, so a prompt that happens to contain
+// the words does not count. Only a top-level key does.
+func asksForStream(h http.Header, body []byte) bool {
+	if strings.Contains(strings.ToLower(h.Get("Accept")), "text/event-stream") {
+		return true
+	}
+	if len(body) == 0 || !json.Valid(body) {
+		return false
+	}
+	var v struct {
+		Stream *bool `json:"stream"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return false
+	}
+	return v.Stream != nil && *v.Stream
 }
 
 func flatten(h http.Header) map[string]string {
