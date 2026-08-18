@@ -114,12 +114,23 @@ type LLMResponseEnd struct {
 
 // ToolCallRequest and ToolCallResult cover MCP and any other JSON-RPC tool
 // surface the mediator understands well enough to key semantically.
+//
+// Both are recorded alongside, never instead of, the LlmRequest/
+// LlmResponseChunk/LlmResponseEnd events that already cover the same HTTP
+// exchange -- an MCP call over streamable HTTP is ordinary traffic to an
+// allowed host, and that transcript is what replay matches against. These are
+// a semantic reading of it, for a human looking at `hark inspect`.
 type ToolCallRequest struct {
 	Server     string `cbor:"1,keyasint"`
 	Tool       string `cbor:"2,keyasint"`
 	Arguments  []byte `cbor:"3,keyasint"` // canonical JSON as sent
 	RequestKey []byte `cbor:"4,keyasint"`
 	Occurrence uint32 `cbor:"5,keyasint"`
+
+	// Exchange ties this to the LlmRequest of the same wire exchange, the same
+	// way LLMRequest.Exchange does. Added after the original two fields, so an
+	// old bundle simply has it as zero rather than failing to decode.
+	Exchange uint64 `cbor:"6,keyasint"`
 }
 
 type ToolCallResult struct {
@@ -127,6 +138,10 @@ type ToolCallResult struct {
 	Tool    string `cbor:"2,keyasint"`
 	Result  []byte `cbor:"3,keyasint"`
 	IsError bool   `cbor:"4,keyasint"`
+
+	// Exchange ties this to its ToolCallRequest, mirroring
+	// LLMResponseEnd.Exchange.
+	Exchange uint64 `cbor:"5,keyasint"`
 }
 
 // DNSQuery records a name lookup. Written before the decision, for the same

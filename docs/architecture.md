@@ -83,6 +83,17 @@ that index as it happens; a divergence kills the agent rather than producing a b
 the agent to draw its own clock and randomness. See
 [ADR-0008](decisions/0008-forks-have-a-verified-prefix-and-a-live-suffix.md).
 
+### MCP, recorded rather than specially handled
+
+An MCP server reached over streamable HTTP needs no dedicated support: it is a host in the
+allowlist receiving ordinary POST requests, so it already goes through the same TLS termination,
+recording and replay path proven for model traffic. On top of that transcript, `internal/mediator`
+recognises a JSON-RPC 2.0 `tools/call` request and its matching response, and records a second,
+semantic layer — `ToolCallRequest`/`ToolCallResult`, correlated by `Exchange` the same way
+`LlmRequest`/`LlmResponseEnd` are. Additive by construction: a call the parser fails to recognise
+still replays correctly through the generic events, and only the readability of `hark inspect`
+degrades.
+
 ### Not yet built
 
 `hark bisect` — automated counterfactual search for the minimal injected span that flips a plan. See

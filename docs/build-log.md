@@ -4,6 +4,55 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-17 — W5 begins: streaming and MCP, both additive
+
+Two of W5's three items, both off the box for now but built to the same standard: real tests against
+a real flushing stream, not an assertion about intent.
+
+**Streaming was already correct; nothing had checked it.** `internal/mediator` framed a streamed
+response by writing chunks separately as they arrived, which W3's chunk-granular design got right
+from the start. What it lacked was a test against a genuinely flushing SSE upstream rather than an
+ordinary buffered one. Three properties, all confirmed: one recorded chunk per flush, the same
+boundaries reproduced on replay, and the first event reaching the agent before a 450ms stream had
+finished -- proof the mediator forwards rather than buffers.
+
+While writing that test, a second defect turned up in the format rather than the code.
+`LlmRequest.Streaming` was declared, set to `true` only by the synthetic bundle generator, and
+populated by the real recorder never. Every genuine bundle therefore said no request had ever asked
+for a stream, including the ones that had -- a field that is always false is a false statement in
+every artifact carrying it. It now means what is knowable at the moment the request event is
+written: an `Accept: text/event-stream` header, or a top-level `"stream": true` in the body, the
+latter parsed rather than searched so the words inside a prompt do not count.
+
+**MCP, recorded without a second protocol path.** An MCP server reached over streamable HTTP is, at
+the wire, an allowed host receiving POST requests -- already recorded and replayed exactly as model
+traffic is, with that path already proven. Rather than build a parallel MCP-aware forwarding path
+and risk the machinery W2-W4 verified on the box, the mediator recognises a JSON-RPC 2.0
+`tools/call` request and its matching response and records a second, semantic layer on top:
+`ToolCallRequest`/`ToolCallResult`, gaining an `Exchange` field each so they correlate the same way
+`LlmRequest`/`LlmResponseEnd` do.
+
+Additive is the whole design. A call the parser fails to recognise -- a different JSON-RPC shape, an
+unrelated API that happens to use the word "method" -- still replays correctly through the generic
+events; the only thing that degrades is how readable `hark inspect` is for that one call. The
+worst-case failure mode of a new feature landing here is strictly smaller than anywhere else in the
+mediator, on purpose.
+
+One efficiency point worth keeping: the response body is accumulated into memory only when the
+request was recognised as a tool call. Every other response -- which is most of them, and which can
+be arbitrarily large model output -- pays nothing for a reading nobody asked for.
+
+**Verified.** Full suite green, `go vet` clean, Linux cross-build clean. New: streaming tests against
+a real flushing upstream, and MCP tests covering both the parser in isolation and the whole mediator
+path in both live and playback mode, plus the negative case -- ordinary traffic must record no
+`ToolCall*` events at all.
+
+**Next.** UrbanHeat's LangGraph agents with zero code changes, which is what W5 was actually staged
+for -- these two were the prerequisites its retry-on-429 and TTLCache paths are likely to exercise
+immediately.
+
+---
+
 ## 2026-08-17 — W4 on the box: five defects, one of them the important one
 
 The demo runs end to end on kernel 6.17. Recorded 31 events, `REPLAY-EQUAL`, forked at event 11 with

@@ -6,9 +6,22 @@ independent version number, documented in [docs/protocol.md](docs/protocol.md).
 
 ## [Unreleased]
 
-Everything below is implemented, tested, and verified end to end on Linux. `v0.1.0` is tagged once a
-run has been anchored in the transparency log for real and the README carries its demo GIF. See
-[docs/roadmap.md](docs/roadmap.md).
+v0.1 is implemented, tested, and verified end to end on Linux: a run is anchored in the public
+Sigstore log and its inclusion checked from a second machine. `v0.1.0` is tagged once the README
+carries its demo GIF — the only item still open. See [docs/roadmap.md](docs/roadmap.md).
+
+### Added — W5 (in progress)
+
+- Chunk-granular SSE record and replay, verified against a real flushing upstream: one recorded
+  chunk per flush, those boundaries reproduced on replay, and the first event reaching the agent
+  before the stream ends rather than being buffered.
+- `LlmRequest.Streaming` is now populated by the recorder — an `Accept: text/event-stream` header
+  or a top-level `"stream": true` in the JSON body — where previously only the synthetic bundle
+  generator ever set it, so every real bundle understated its own traffic.
+- MCP servers recorded behind the mediator: a JSON-RPC 2.0 `tools/call` request and its response
+  are recognised and recorded as `ToolCallRequest`/`ToolCallResult`, correlated by a new `Exchange`
+  field on each, added alongside the ordinary `LlmRequest`/`LlmResponseChunk`/`LlmResponseEnd`
+  transcript that already covers the same exchange and that replay already matches against.
 
 ### Added — W4
 

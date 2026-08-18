@@ -148,6 +148,18 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 	}
 	m.record(logfmt.KindLLMRequest, recorded)
 
+	// A semantic reading of the same request, when it recognisably is one: see
+	// mcp.go for what "recognisably" means and why this is additive rather than
+	// a second source of truth. tool is carried forward so the response side
+	// knows whether to look for a matching result.
+	tool, arguments, isToolCall := parseToolCall(body)
+	if isToolCall {
+		m.record(logfmt.KindToolCallRequest, logfmt.ToolCallRequest{
+			Server: host, Tool: tool, Arguments: arguments,
+			RequestKey: key.Hash[:], Occurrence: key.Occurrence, Exchange: exchange,
+		})
+	}
+
 	// Credential substitution happens in both modes, and is recorded in both.
 	//
 	// A replayed run sends nothing upstream, so the injected copy is discarded
@@ -180,7 +192,7 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 		res, err := m.cfg.Playback.Lookup(canonical)
 		switch {
 		case err == nil:
-			return m.relayRecorded(res, agent, exchange)
+			return m.relayRecorded(res, agent, exchange, toolCall{host, tool, isToolCall})
 		case errors.Is(err, ErrLive):
 			// A fork past its branch point. Fall through to the live path: the
 			// request has already been recorded, so the child bundle is a
@@ -226,7 +238,30 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 		return err
 	}
 
-	return m.relayResponse(resp, agent, exchange)
+	return m.relayResponse(resp, agent, exchange, toolCall{host, tool, isToolCall})
+}
+
+// toolCall carries the request-side tool call, if any, to the response side --
+// a response contains no method name to check against, so recognising its
+// result depends on already knowing the request was one.
+type toolCall struct {
+	server, tool string
+	is           bool
+}
+
+// recordResult records the ToolCallResult for a completed exchange, if tc says
+// the request was a tool call and body parses as a JSON-RPC response.
+func (m *Mediator) recordResult(tc toolCall, body []byte, exchange uint64) {
+	if !tc.is {
+		return
+	}
+	result, isError, ok := parseToolResult(body)
+	if !ok {
+		return
+	}
+	m.record(logfmt.KindToolCallResult, logfmt.ToolCallResult{
+		Server: tc.server, Tool: tc.tool, Result: result, IsError: isError, Exchange: exchange,
+	})
 }
 
 // relayRecorded serves a recorded response back to the agent, re-recording it so
@@ -239,7 +274,7 @@ func (m *Mediator) exchange(req *http.Request, host string, up *upstream, agent 
 // Inter-chunk timing is not reproduced. Sleeping through a recorded four-minute
 // run would defeat the point of replay being fast, and nothing in the
 // determinism claim depends on wall-clock spacing.
-func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange uint64) error {
+func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange uint64, tc toolCall) error {
 	head := &http.Response{
 		StatusCode: res.Status,
 		Header:     make(http.Header, len(res.Headers)),
@@ -296,6 +331,16 @@ func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange
 		end.Error = relayErr.Error()
 	}
 	m.record(logfmt.KindLLMResponseEnd, end)
+
+	if relayErr == nil {
+		// The whole body was already in memory as res.Chunks; no separate
+		// accumulation needed the way the live path requires.
+		var whole []byte
+		for _, c := range res.Chunks {
+			whole = append(whole, c...)
+		}
+		m.recordResult(tc, whole, exchange)
+	}
 	return relayErr
 }
 
@@ -307,7 +352,7 @@ func (m *Mediator) relayRecorded(res *PlaybackResponse, agent net.Conn, exchange
 // source of nondeterminism -- and once the client has reassembled them the
 // information is gone and cannot be recovered. This is what W3's replay depends
 // on.
-func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange uint64) error {
+func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange uint64, tc toolCall) error {
 	defer resp.Body.Close()
 
 	// Let net/http write the response, rather than hand-rolling the head.
@@ -328,6 +373,11 @@ func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange u
 		mediator: m,
 		exchange: exchange,
 		lastAt:   time.Now(),
+		// Only a tool call's body is accumulated. Every other response can be
+		// arbitrarily large model output, and holding a second copy of it in
+		// memory for a reading nothing asked for would be a real cost paid on
+		// every request instead of the rare one that needs it.
+		capture: tc.is,
 	}
 	resp.Body = body
 
@@ -343,6 +393,10 @@ func (m *Mediator) relayResponse(resp *http.Response, agent net.Conn, exchange u
 		end.Error = relayErr.Error()
 	}
 	m.record(logfmt.KindLLMResponseEnd, end)
+
+	if relayErr == nil {
+		m.recordResult(tc, body.captured, exchange)
+	}
 	return relayErr
 }
 
@@ -357,6 +411,11 @@ type recordingBody struct {
 	exchange uint64
 	chunks   uint32
 	lastAt   time.Time
+
+	// capture and captured exist only for the ToolCallResult reading: JSON-RPC
+	// has to be parsed from the whole body, not from one chunk at a time.
+	capture  bool
+	captured []byte
 }
 
 func (b *recordingBody) Read(p []byte) (int, error) {
@@ -365,6 +424,9 @@ func (b *recordingBody) Read(p []byte) (int, error) {
 		now := time.Now()
 		chunk := make([]byte, n)
 		copy(chunk, p[:n])
+		if b.capture {
+			b.captured = append(b.captured, chunk...)
+		}
 		b.mediator.record(logfmt.KindLLMResponseChunk, logfmt.LLMResponseChunk{
 			Seq:       b.chunks,
 			Data:      chunk,

@@ -213,6 +213,22 @@ func normalise(kind logfmt.Kind, payload []byte) ([]byte, string, bool) {
 		v.EndedAt = 0
 		return remarshal(v), fmt.Sprintf("end, exit %d", v.ExitCode), true
 
+	case logfmt.KindToolCallRequest:
+		var v logfmt.ToolCallRequest
+		if logfmt.Unmarshal(payload, &v) == nil {
+			return payload, fmt.Sprintf("call %s/%s", v.Server, v.Tool), true
+		}
+
+	case logfmt.KindToolCallResult:
+		var v logfmt.ToolCallResult
+		if logfmt.Unmarshal(payload, &v) == nil {
+			verdict := "ok"
+			if v.IsError {
+				verdict = "error"
+			}
+			return payload, fmt.Sprintf("%s/%s -> %s", v.Server, v.Tool, verdict), true
+		}
+
 	case logfmt.KindDNSQuery:
 		var v logfmt.DNSQuery
 		if logfmt.Unmarshal(payload, &v) == nil {

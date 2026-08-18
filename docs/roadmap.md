@@ -121,15 +121,20 @@ to prevent. They are in [build-log.md](build-log.md).
 - [ ] README with the demo GIF.
 - [ ] Tag `v0.1.0`, once the above are true rather than expected to be.
 
-## W5 — a real workload · not started
+## W5 — a real workload · **in progress**
 
 Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
 
+- [x] Streaming: chunk-granular SSE record and replay. Verified against a real flushing SSE
+      upstream: one chunk per flush, the boundaries reproduced on replay, and the first event
+      reaching the agent before the stream ends.
+- [x] MCP servers recorded behind the proxy. Additive: a JSON-RPC `tools/call` is recognised and
+      recorded as `ToolCallRequest`/`ToolCallResult` on top of the ordinary HTTP transcript that
+      already covers it, correlated by `Exchange`, without touching the generic recording path
+      replay already depends on.
 - [ ] Record UrbanHeat's LangGraph agents with **zero code changes** — `HTTPS_PROXY`, the CA, and
       `PYTHONPATH`. Its retry-on-429 path exercises "same logical call, multiple HTTP requests", and
       its TTLCache produces the cache hit/miss interleaving that makes request keying interesting.
-- [ ] Streaming: chunk-granular SSE record and replay.
-- [ ] MCP servers recorded behind the proxy.
 
 ## W6 — fidelity evidence · not started
 

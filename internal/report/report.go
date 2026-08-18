@@ -331,7 +331,10 @@ func buildRow(f *logfmt.Frame, opt Options) row {
 	case logfmt.KindToolCallRequest:
 		var v logfmt.ToolCallRequest
 		if logfmt.Unmarshal(f.Payload, &v) == nil {
-			r.Fields = []field{{"server", v.Server}, {"tool", v.Tool}, {"occurrence", fmt.Sprint(v.Occurrence)}}
+			r.Fields = []field{
+				{"server", v.Server}, {"tool", v.Tool},
+				{"occurrence", fmt.Sprint(v.Occurrence)}, {"exchange", fmt.Sprint(v.Exchange)},
+			}
 			r.Body, r.More = clip(v.Arguments, opt.MaxBody)
 			r.BodyOf = "arguments"
 		}
@@ -339,7 +342,10 @@ func buildRow(f *logfmt.Frame, opt Options) row {
 	case logfmt.KindToolCallResult:
 		var v logfmt.ToolCallResult
 		if logfmt.Unmarshal(f.Payload, &v) == nil {
-			r.Fields = []field{{"server", v.Server}, {"tool", v.Tool}, {"error", fmt.Sprint(v.IsError)}}
+			r.Fields = []field{
+				{"server", v.Server}, {"tool", v.Tool},
+				{"error", fmt.Sprint(v.IsError)}, {"exchange", fmt.Sprint(v.Exchange)},
+			}
 			r.Body, r.More = clip(v.Result, opt.MaxBody)
 			r.BodyOf = "result"
 		}

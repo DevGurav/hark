@@ -150,6 +150,15 @@ statement about the request, because that is what is knowable when the request e
 what the response turned out to be is described by its chunks. The body is parsed rather than
 searched, so those words inside a prompt do not count.
 
+`ToolCallRequest`/`ToolCallResult` gained an `Exchange` field each (key 6 and key 5 respectively,
+added after the original fields — an old bundle simply decodes it as zero). They are recorded
+*alongside*, never instead of, the `LlmRequest`/`LlmResponseChunk`/`LlmResponseEnd` events already
+covering the same wire exchange: an MCP server reached over streamable HTTP is ordinary traffic to
+an allowed host, so that transcript is what replay matches against, and these two are a semantic
+reading of it — recognised when a request body is JSON-RPC 2.0 naming `tools/call`. A request the
+mediator fails to recognise this way still replays correctly through the generic events; the worst
+failure here is a less readable `hark inspect`, never a replay that breaks.
+
 `SecretInjected` records a substitution by reference only; see [Secrets](#secrets) below.
 
 ## Event kinds
