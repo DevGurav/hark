@@ -132,9 +132,15 @@ Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
       recorded as `ToolCallRequest`/`ToolCallResult` on top of the ordinary HTTP transcript that
       already covers it, correlated by `Exchange`, without touching the generic recording path
       replay already depends on.
-- [ ] Record UrbanHeat's LangGraph agents with **zero code changes** — `HTTPS_PROXY`, the CA, and
-      `PYTHONPATH`. Its retry-on-429 path exercises "same logical call, multiple HTTP requests", and
-      its TTLCache produces the cache hit/miss interleaving that makes request keying interesting.
+- [x] Record UrbanHeat's LangGraph agents with **zero code changes**. Not one line of UrbanHeat's
+      source touched — only environment, staged data, and an external driver script playing the
+      same role `demo/agent.py` plays for the W4 incident. Two independent live runs against
+      `generativelanguage.googleapis.com`, both `REPLAY-EQUAL` on a second replay pass. Its
+      retry-on-429 path fired for real (see build-log.md) and replayed byte-for-byte identical,
+      with zero network calls made during replay.
+- [ ] The TTLCache hit/miss interleaving — blocked on Gemini's free-tier quota (5 req/min): the
+      retries inside one agent turn already exhaust it before a second question can run. Needs a
+      paid key or a slower cadence than tested so far.
 
 ## W6 — fidelity evidence · not started
 

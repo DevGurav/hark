@@ -4,6 +4,72 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-18 — W5: UrbanHeat, zero code changes, real retry-on-429
+
+Pointed hark at a real target for the first time: UrbanHeat's Supervisor (four LangGraph agents,
+`langchain-google-genai` against Gemini, a TTLCache, RAG over Chroma) — not a stub, not written for
+this project. Not one line of its source changed. What changed was environment: the repo cloned to
+`/opt/urbanheat` (world-traversable, per the same Landlock constraint the W4 demo already
+documented), its prebuilt `data/processed`/`models`/`chroma_db` artifacts staged alongside, and a
+standalone driver script — `demo_workload.py`, playing the same role `demo/agent.py` plays for the
+W4 incident — that imports `backend.agents.supervisor.Supervisor` and calls `.handle()` with a real
+question. `hark run` did the rest: DNS mediation, TLS interception, egress allowlisting against
+`generativelanguage.googleapis.com` and `api.open-meteo.com`, and credential substitution for
+`GEMINI_API_KEY` via the same `[secrets]` mechanism the demo uses, with `SecretInjected` on the
+record nine times in each of the two runs below and the real key never in the child's environment
+or on disk.
+
+**Two real, live runs, both `REPLAY-EQUAL`.** Each recorded 144 events and reproduced the identical
+digest on replay, with zero network calls made during that replay:
+
+```text
+run4  root 97226da1...  REPLAY-EQUAL  144 actions, digest 1c658563...
+run5  root 1af6ed98...  REPLAY-EQUAL  144 actions, digest a1676a15...
+```
+
+**The retry-on-429 path fired for real, unprompted** — this is the property W5 staged UrbanHeat for,
+and it showed up from genuine free-tier rate limiting rather than a contrived test: a single agent
+turn's tool-calling loop makes several model calls, `ChatGoogleGenerativeAI`'s own retry (ADR-0002,
+`MAX_RETRIES=3`) fires on a 503 or 429, and the mediator recorded every attempt as its own
+`LlmRequest`/`LlmResponseEnd` pair, `occurrence` incrementing on each:
+
+```text
+LlmRequest  ...generateContent (852 bytes, occurrence 0)   -> LlmResponseEnd status 503
+LlmRequest  ...generateContent (852 bytes, occurrence 1)   -> LlmResponseEnd status 200
+LlmRequest  ...generateContent (9499 bytes, occurrence 0)  -> LlmResponseEnd status 429
+LlmRequest  ...generateContent (9499 bytes, occurrence 1)  -> LlmResponseEnd status 429
+LlmRequest  ...generateContent (9499 bytes, occurrence 2)  -> LlmResponseEnd status 429
+```
+
+"Same logical call, multiple HTTP requests" was the thing W5's spec worried naive recorders would
+get wrong. Recording it turned out to need nothing extra: it is already just more traffic through
+the same allowed host, keyed by `(canonical_request_hash, occurrence_ordinal)` exactly as W3 built
+it. Replay reproduced the 503s and the 429s in the same order at the same digest — the failure mode
+is as replayable as the success.
+
+**What this did not reach.** Both runs died inside the *first* question, never getting far enough to
+demonstrate the TTLCache hit/miss interleaving the spec also wanted: the free-tier quota is 5
+requests/minute, and the retries inside one agent turn exhaust it before a second question's first
+call. A 65-second pause between questions did not help, because the exhaustion happens within a
+single turn, not between them. Genuinely blocked on quota rather than on anything hark does — either
+a paid key or a deliberately simpler single-tool-call question would clear it, left for next time.
+
+**Friction, for the record.** Two Landlock-shaped defects in the setup, neither in hark: `.env`
+world-unreadable (my own `chmod`, not a hark default) produced a permission error indistinguishable
+at first glance from a sandboxing bug, and Chroma's SQLite needed both a `write_paths` grant and
+actual filesystem write bits — Landlock and DAC are enforced independently, and satisfying only one
+looks identical to satisfying neither until the error names which. Both are operator error, both
+instructive: a policy that grants access Landlock enforces is not sufficient if the underlying file
+mode still says no.
+
+**Verified.** `hark verify` clean on both bundles. `hark replay` reproduces both digests with no
+network calls. `hark inspect` shows the same shape on each: 1 EgressDecision (allowed), 2
+DnsQuery/2 DnsDecision, 9 SecretInjected, 9 LlmResponseEnd.
+
+**Next.** A slower or paid-tier run to reach the TTLCache interleaving; then W6.
+
+---
+
 ## 2026-08-17 — W5 begins: streaming and MCP, both additive
 
 Two of W5's three items, both off the box for now but built to the same standard: real tests against
