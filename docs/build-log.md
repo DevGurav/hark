@@ -63,6 +63,29 @@ real this time.
 
 ---
 
+## 2026-08-20 — it does: `hark run` works on a GitHub-hosted runner, unmodified
+
+The rerun after the executable-bit fix: `fidelity` job, **success, 44 seconds**. No direct log
+access without a token (the API's log-download endpoint refuses anonymous requests even on a
+public repo), so the proof is structural rather than a transcript. `run.sh`'s only `::warning::`
+emission is inside `skip()` -- the preflight's escape hatch when Landlock or `unshare --net` is
+unavailable -- and GitHub Actions captures every `::warning::` line as a check-run annotation
+regardless of whether the job later succeeds or fails. The job's annotations: exactly one, and it
+is GitHub's own generic Node.js 20 runner-deprecation notice, not mine. Combined with 44 seconds
+being long enough for a real `go build` (module downloads included, same as the first-ever run on
+the Azure box) plus 25 `hark run` + `hark replay` pairs, and `run.sh` now exiting 1 on any
+non-equal replay since the previous entry -- a plain "success" conclusion is only reachable by
+actually running the suite and getting 25/25.
+
+`ubuntu-24.04` GitHub-hosted runners ship Landlock (kernel new enough) and permit network
+namespace creation for a root job, with zero workarounds. `docs/testing.md`'s "not yet wired into
+CI, needs a privileged runner step" turned out to need nothing more privileged than `sudo`, which
+every hosted Linux runner already grants.
+
+**Verified.** CI run `32343347292`, job `fidelity`: success. W6 is now fully closed, CI included.
+
+---
+
 ## 2026-08-18 — W5 closed: the cache hit needed no wait, just a repeat
 
 The previous entry left the TTLCache hit/miss interleaving blocked on Gemini's free-tier quota (5

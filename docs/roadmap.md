@@ -145,7 +145,7 @@ Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
       retry); the hit took 0.00s and made none. Replay reproduced both halves of that asymmetry
       exactly — `REPLAY-EQUAL`, 135 actions.
 
-## W6 — fidelity evidence · **in progress**
+## W6 — fidelity evidence · **done**
 
 Spec: [build/w6-fidelity.md](build/w6-fidelity.md)
 
@@ -154,10 +154,12 @@ Spec: [build/w6-fidelity.md](build/w6-fidelity.md)
       Caught its own fixture bug on the first real run (build-log.md, 2026-08-20) before ever
       being trusted for a published number.
 - [x] `docs/fidelity.md` published: **25/25 runs replay-equal across 5 shapes**, zero exclusions.
-- [ ] CI wiring pushed, gated on the same Landlock/netns preflight the launcher tests use --
-      outcome on a real GitHub-hosted runner not yet confirmed.
+- [x] CI wiring: the `fidelity` job runs on a stock GitHub-hosted `ubuntu-24.04` runner with no
+      workarounds -- Landlock and network namespace creation both work under `sudo`, confirmed by
+      a real green run (build-log.md, 2026-08-20), not assumed.
 - [x] README badge, static and sourced from `docs/fidelity.md`.
-- [ ] Trace viewer polish.
+- [ ] Trace viewer polish. Left for W7/W8 -- not blocking, and the static HTML report already
+      renders every event; this is refinement, not a gap in the claim.
 
 ## W7 — launch · not started
 

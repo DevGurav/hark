@@ -89,12 +89,12 @@ jobs:
 
   fidelity:
     # W6's replay-fidelity suite: five hermetic agent shapes, each run N times and
-    # replayed. Unlike the `test` job, this needs the launcher's real kernel
-    # features -- network namespaces and Landlock -- which docs/testing.md already
-    # flagged as unverified on a GitHub-hosted runner going in. fidelity/run.sh
-    # skips itself (with a visible ::warning:: annotation, not a silent green tick)
-    # if either is missing, so this job records the answer either way rather than
-    # assuming one.
+    # replayed. Unlike the `test` job, this needs the launcher's real kernel features --
+    # network namespaces and Landlock -- confirmed working on stock ubuntu-24.04 runners
+    # under sudo, no workarounds (build-log.md, 2026-08-20). fidelity/run.sh still skips
+    # itself with a visible ::warning:: rather than a silent green tick if a future
+    # runner image ever lacks either, so a regression here shows up as a skip, not as
+    # this comment quietly going stale.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
