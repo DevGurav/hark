@@ -161,14 +161,19 @@ Spec: [build/w6-fidelity.md](build/w6-fidelity.md)
 - [ ] Trace viewer polish. Left for W7/W8 -- not blocking, and the static HTML report already
       renders every event; this is refinement, not a gap in the claim.
 
-## W7 — launch · **in progress**
+## W7 — launch · **materials done, submission deferred**
 
 Spec: [build/w7-launch.md](build/w7-launch.md)
 
+Every artifact this week called for exists. The one remaining item is the act of posting, which is
+deliberately not automated and not urgent — W5–W8 were always framed as upside on a project that
+was complete at W4, and the artifact's primary job is to stand on its own.
+
 - [x] Technical writeup (`docs/launch/writeup.md`), leading with the incident.
 - [x] Show HN title, post text and the two pre-written rebuttal replies (`docs/launch/show-hn.md`).
-      Drafted only — **not submitted**. Posting it is the maintainer's own action, on their own
-      account, when they choose to.
+- [ ] **Submit it.** Deferred by choice, not blocked. Worth doing on a day with a few free hours to
+      answer comments — a Show HN nobody can reply to for twelve hours is worse than one never
+      made. The draft keeps.
 - [x] Demo video **recorded**: `docs/launch/video.gif`, 30 s, produced by `docs/launch/video.sh` on
       the box with `asciinema` + `agg`. Ten beats from record through report, with the
       recorded-vs-replayed comparison measured live in the recording rather than captioned in.
@@ -177,7 +182,8 @@ Spec: [build/w7-launch.md](build/w7-launch.md)
 
 ## W8 — buffer · not started
 
-Respond to feedback. Fix what the launch surfaces.
+Respond to feedback. Fix what the launch surfaces. Gated on W7's submission actually happening —
+until then there is no feedback to respond to, and that is a fine place for the project to sit.
 
 ## Deliberately out of scope
 
