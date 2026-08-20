@@ -169,9 +169,11 @@ Spec: [build/w7-launch.md](build/w7-launch.md)
 - [x] Show HN title, post text and the two pre-written rebuttal replies (`docs/launch/show-hn.md`).
       Drafted only — **not submitted**. Posting it is the maintainer's own action, on their own
       account, when they choose to.
-- [x] 90-second demo video shot list and captions (`docs/launch/video-script.md`), built from the
-      existing `demo.gif`/`demo.cast` rather than a from-scratch shoot. **Not yet recorded/cut** —
-      that's a maintainer session on the box, same as the incident GIF was.
+- [x] Demo video **recorded**: `docs/launch/video.gif`, 30 s, produced by `docs/launch/video.sh` on
+      the box with `asciinema` + `agg`. Ten beats from record through report, with the
+      recorded-vs-replayed comparison measured live in the recording rather than captioned in.
+      Came in at 30 s rather than the planned 90 — the commands are fast enough that padding would
+      have meant dead air.
 
 ## W8 — buffer · not started
 

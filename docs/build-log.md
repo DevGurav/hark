@@ -37,6 +37,40 @@ shot list. Both remain drafts pending review.
 
 ---
 
+## 2026-08-20 — W7: the video, recorded
+
+`docs/launch/video.gif` — 30 seconds, from `docs/launch/video.sh`, recorded on the box with the
+same `asciinema` + `agg` toolchain as the W4 incident GIF. Ten beats: record, inspect, the two
+controls each isolated on its own frame, verify, replay, fork, the fork's missing denial, report,
+closing card.
+
+**The replay comparison is measured in the recording, not captioned into it.** `video.sh` times
+both the recorded run and the replay and prints `recorded 1061 ms → replayed 166 ms` in green as
+the run happens. Every take lands within a few ms of `docs/benchmarking.md`'s published
+1052 ms → 145 ms, which is the useful property: the benchmark reproduces, so the video never has to
+quote it. Same reason `HARK_STUB_DELAY=0.9` is set -- a stub answering instantly leaves replay with
+no latency to skip and would understate the figure most likely to be quoted.
+
+**Three things the plan got wrong, all found by recording it.** The shot list said 90 seconds; the
+real thing is 30, because the plan assumed narration pacing and the commands are fast enough that
+the only real time cost is caption reading -- padding to 90 would have been dead air. It also
+specified a split screen, agent left and mediator events right, which turned out to be inventing a
+view that doesn't exist: the mediator's event stream *is* `hark inspect`'s output, so showing the
+real command is both more honest and more reproducible than compositing two panes. And the first
+attempt recorded at 100 columns, which wrapped `inspect`'s output mid-word (`violatio n`); 140
+columns fixed it. The shot list has been rewritten to describe what was recorded rather than what
+was imagined.
+
+One process note worth keeping: `video.sh` went into git with its executable bit set *deliberately*
+this time, via `git update-index --chmod=+x`, because the W6 fidelity suite lost a CI run to
+exactly that mistake three entries ago. A lesson that cost a red build once should not cost a
+second one.
+
+**Still not done, deliberately.** Nobody has posted to Hacker News. That remains the maintainer's
+own action on their own account.
+
+---
+
 ## 2026-08-20 — W6: the fidelity suite, and the fixture bug it caught on its first real run
 
 Five agent shapes under `fidelity/shapes/`, each isolating one property replay has to get right:
