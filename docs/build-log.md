@@ -4,6 +4,39 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-20 — W7 drafted: writeup, Show HN post, video shot list
+
+Three documents under `docs/launch/`, all drafted, none submitted anywhere. This week is
+qualitatively different from W0-W6: everything before this was an artifact I could write, run,
+verify on the box and push -- reversible, checkable. A Show HN post has the maintainer's name on
+it and exactly one first impression, so the split is deliberate: draft in full, submit never.
+
+**The writeup** leads with the incident (the same one `demo/run.sh` runs), states the
+operator-signed-log argument for why transparency anchoring isn't optional, carries the
+determinism-scoping paragraph near-verbatim because overclaiming there is what a skeptical reader
+should check first, and cites the W5 UrbanHeat result and the W6 fidelity suite's self-caught bug
+as evidence rather than assertion. Every number in it traces to `benchmarking.md` or `fidelity.md`
+-- none invented for the writeup itself.
+
+**The Show HN draft** uses the title `docs/build/w5-w8-later.md` specified when that plan was
+written, a short post
+that gets out of its own comments' way, and both predicted rebuttals pre-written in the post's own
+voice: the Pipelock/Clawker/Agent-VCR comparison, and the "model is nondeterministic, so what does
+replay prove" question. Having the answer ready before the thread exists is worth more than README
+polish once it does.
+
+**The video shot list** turned out to mostly already exist: `demo.gif` and `demo.cast` (recorded
+on the box during W4) already cover build through report end to end. Rather than plan a
+from-scratch shoot, the shot list extends W4's own beats to a full 90 seconds and pulls real
+figures where W4's spec had used illustrative placeholders -- the replay line is `1052ms → 145ms`
+from the actual benchmark, not the placeholder `3.1s vs 4m12s` the earlier spec wrote before that
+number existed. Recording/cutting is left as a maintainer session, same as the GIF was.
+
+**Not done, deliberately.** Nobody has posted to Hacker News. No video has been recorded from this
+shot list. Both remain drafts pending review.
+
+---
+
 ## 2026-08-20 — W6: the fidelity suite, and the fixture bug it caught on its first real run
 
 Five agent shapes under `fidelity/shapes/`, each isolating one property replay has to get right:

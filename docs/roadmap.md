@@ -161,11 +161,17 @@ Spec: [build/w6-fidelity.md](build/w6-fidelity.md)
 - [ ] Trace viewer polish. Left for W7/W8 -- not blocking, and the static HTML report already
       renders every event; this is refinement, not a gap in the claim.
 
-## W7 — launch · not started
+## W7 — launch · **in progress**
 
-- [ ] 90-second demo video, captions rather than narration, split screen.
-- [ ] Show HN, leading with the security incident rather than the architecture.
-- [ ] Technical writeup.
+Spec: [build/w7-launch.md](build/w7-launch.md)
+
+- [x] Technical writeup (`docs/launch/writeup.md`), leading with the incident.
+- [x] Show HN title, post text and the two pre-written rebuttal replies (`docs/launch/show-hn.md`).
+      Drafted only — **not submitted**. Posting it is the maintainer's own action, on their own
+      account, when they choose to.
+- [x] 90-second demo video shot list and captions (`docs/launch/video-script.md`), built from the
+      existing `demo.gif`/`demo.cast` rather than a from-scratch shoot. **Not yet recorded/cut** —
+      that's a maintainer session on the box, same as the incident GIF was.
 
 ## W8 — buffer · not started
 
