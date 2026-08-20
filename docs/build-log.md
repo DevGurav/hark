@@ -46,6 +46,23 @@ GitHub-hosted `ubuntu-24.04` runner actually has both is genuinely unknown going
 
 ---
 
+## 2026-08-20 — the fidelity job's first CI run: exit 126, and it was never about Landlock
+
+Pushed and watched. The `fidelity` job failed in 19 seconds -- too fast to have reached the
+preflight check at all, and `exit 126` is the shell's code for "found the file, could not execute
+it," not a Landlock or namespace refusal. `git ls-files -s` confirmed it on the first guess:
+`fidelity/run.sh` was tracked as `100644`, `demo/run.sh` as `100755`. Created fresh on Windows this
+session, never `chmod +x`'d *before* the commit that added it -- every box test afterward ran a
+copy `chmod +x`'d by hand over `scp`, which is edited-in-place, not what git had stored. A clean
+`actions/checkout@v4` gets exactly the stored mode. `git update-index --chmod=+x` fixed it in the
+index directly rather than needing a working-tree chmod plus a second diff.
+
+So the actual question W6 opened with -- does a GitHub-hosted runner have Landlock and network
+namespaces for `hark run` -- is still unanswered, one mundane bug later. Next entry says which, for
+real this time.
+
+---
+
 ## 2026-08-18 — W5 closed: the cache hit needed no wait, just a repeat
 
 The previous entry left the TTLCache hit/miss interleaving blocked on Gemini's free-tier quota (5
