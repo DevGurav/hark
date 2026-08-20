@@ -86,3 +86,23 @@ jobs:
           if ./hark fork -at 5 -patch demo/strip-injection.json good.hark; then
             echo "patched an event that is not a request"; exit 1
           fi
+
+  fidelity:
+    # W6's replay-fidelity suite: five hermetic agent shapes, each run N times and
+    # replayed. Unlike the `test` job, this needs the launcher's real kernel
+    # features -- network namespaces and Landlock -- which docs/testing.md already
+    # flagged as unverified on a GitHub-hosted runner going in. fidelity/run.sh
+    # skips itself (with a visible ::warning:: annotation, not a silent green tick)
+    # if either is missing, so this job records the answer either way rather than
+    # assuming one.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Replay-fidelity suite
+        run: sudo env "PATH=$PATH" ./fidelity/run.sh -n 5

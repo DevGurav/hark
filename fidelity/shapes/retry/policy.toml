@@ -1,0 +1,4 @@
+# The retry shape: one host, one call that fails once before it succeeds.
+
+allow_hosts = ["retry.example"]
+read_paths  = ["/opt/hark-fidelity/retry"]

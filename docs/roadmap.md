@@ -145,11 +145,18 @@ Spec: [build/w5-w8-later.md](build/w5-w8-later.md)
       retry); the hit took 0.00s and made none. Replay reproduced both halves of that asymmetry
       exactly — `REPLAY-EQUAL`, 135 actions.
 
-## W6 — fidelity evidence · not started
+## W6 — fidelity evidence · **in progress**
 
-- [ ] Replay-fidelity suite: N recorded runs across M agent shapes, percentage replay-equal, **with
-      the failures published**. Never claim 100%.
-- [ ] CI determinism badge from that suite.
+Spec: [build/w6-fidelity.md](build/w6-fidelity.md)
+
+- [x] Five hermetic agent shapes: incident (reused from `demo/`), streaming, retry, repeat, mcp.
+- [x] `fidelity/run.sh`: N runs per shape, replayed, tallied into REPLAY-EQUAL / DIVERGED / errored.
+      Caught its own fixture bug on the first real run (build-log.md, 2026-08-20) before ever
+      being trusted for a published number.
+- [x] `docs/fidelity.md` published: **25/25 runs replay-equal across 5 shapes**, zero exclusions.
+- [ ] CI wiring pushed, gated on the same Landlock/netns preflight the launcher tests use --
+      outcome on a real GitHub-hosted runner not yet confirmed.
+- [x] README badge, static and sourced from `docs/fidelity.md`.
 - [ ] Trace viewer polish.
 
 ## W7 — launch · not started

@@ -2,6 +2,11 @@
 
 Deterministic record and replay for AI agents — with a proof the replay is real.
 
+[![replay fidelity: 25/25 across 5 shapes](https://img.shields.io/badge/replay%20fidelity-25%2F25%20across%205%20shapes-brightgreen)](docs/fidelity.md)
+
+Static and hand-updated alongside [docs/fidelity.md](docs/fidelity.md), not CI-generated —
+see that page for what 25/25 does and does not claim.
+
 **Status: v0.1.** Recording, replay, forking, transparency anchoring and the static trace report are
 implemented, tested, and verified end to end on Linux — a run has been anchored in the public
 Sigstore log and its inclusion checked from a second machine. See

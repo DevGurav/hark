@@ -1,0 +1,4 @@
+# The streaming shape: one host, one SSE response.
+
+allow_hosts = ["stream.example"]
+read_paths  = ["/opt/hark-fidelity/streaming"]

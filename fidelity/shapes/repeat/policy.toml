@@ -1,0 +1,4 @@
+# The repeat shape: one host, the same request sent twice.
+
+allow_hosts = ["repeat.example"]
+read_paths  = ["/opt/hark-fidelity/repeat"]

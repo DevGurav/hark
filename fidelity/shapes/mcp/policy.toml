@@ -1,0 +1,4 @@
+# The mcp shape: one host, one JSON-RPC tools/call exchange.
+
+allow_hosts = ["mcp.example"]
+read_paths  = ["/opt/hark-fidelity/mcp"]

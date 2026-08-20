@@ -24,6 +24,11 @@ proof*.json
 /demo/stub.pem
 /demo/stub.key
 
+# Fidelity suite working files. Same split: shapes/ and run.sh are tracked, what a run
+# of run.sh produces is not.
+/fidelity/hark
+/fidelity/results.txt
+
 # Go
 *.test
 *.out

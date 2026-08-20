@@ -4,6 +4,48 @@ Newest first. Append-only.
 
 ---
 
+## 2026-08-20 — W6: the fidelity suite, and the fixture bug it caught on its first real run
+
+Five agent shapes under `fidelity/shapes/`, each isolating one property replay has to get right:
+`streaming` (chunk boundaries, not just bytes), `retry` (the same logical call as two HTTP
+requests after a 503), `repeat` (an identical request sent twice with no error in between), `mcp`
+(a JSON-RPC `tools/call` layered on ordinary HTTP), and `incident` -- reused from `demo/` rather
+than duplicated, so there is exactly one copy of the prompt-injection scenario in the repo.
+Deliberately hermetic, all four new ones: a local stub upstream apiece, no network, no quota to
+hit. W5 already paid down the lesson that a live endpoint measures somebody else's rate limiter,
+not hark, and this suite's whole point is a repeatable number.
+
+**The suite found a bug in itself before it ever published one.** The first real run at `-n 5`
+reported `retry` at 22/13/13/13/13 events instead of 22 every time. Not a replay bug -- a fixture
+bug: `fidelity/run.sh` started one stub process and reused it across all N iterations of a shape,
+and the retry stub's "have I failed once yet" counter is process-global. Only the first iteration
+ever saw a 503; the other four silently degenerated into the trivial single-request case while
+still reporting `REPLAY-EQUAL` -- true and uninteresting, since replaying a call that never
+retried proves nothing about retry fidelity. Fixed by giving every iteration of every shape its
+own fresh stub process, so N independent recordings cannot see each other's server-side state.
+`docs/fidelity.md` keeps this in the published report rather than quietly fixing it and moving on.
+
+A second thing worth recording precisely because it *didn't* turn into a check: independent
+recordings of the same hermetic shape produce different Merkle roots every time, by design --
+`RunStart` carries a wall-clock timestamp and a fresh run id, both legitimately unique per run.
+W3 already ruled out comparing roots for exactly this reason (build-log, W3 entry); this session
+almost reintroduced the same mistake as a "run-to-run consistency" metric before checking event
+counts instead, which are structurally deterministic for a hermetic shape and were what actually
+caught the retry bug above.
+
+**Verified.** `sudo fidelity/run.sh -n 5` on the box: **25/25 runs replay-equal across 5 shapes**,
+`retry` confirmed at 22 events on every one of the five independent recordings. Published as
+`docs/fidelity.md`, in the exact form the roadmap already committed to -- the count and the
+shapes, never a bare percentage.
+
+**Not yet verified.** A `fidelity` job landed in `.github/workflows/ci.yml`, gated behind a
+preflight (Landlock in the active LSM list, `unshare --net` works) that skips with a visible
+`::warning::` rather than failing or passing silently when either is missing. Whether a
+GitHub-hosted `ubuntu-24.04` runner actually has both is genuinely unknown going in --
+`docs/testing.md` flagged this exact gap before W6 started. Next entry says which.
+
+---
+
 ## 2026-08-18 — W5 closed: the cache hit needed no wait, just a repeat
 
 The previous entry left the TTLCache hit/miss interleaving blocked on Gemini's free-tier quota (5
